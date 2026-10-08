@@ -74,10 +74,9 @@ def get_image_base64(uploaded_file):
 
 try:
     try:
-        credentials = Credentials.from_service_account_file("secrets.json", scopes=scopes)
-    except:
-        secret_dict = json.loads(st.secrets["google_secret"])
-        credentials = Credentials.from_service_account_info(secret_dict, scopes=scopes)
+    credentials = Credentials.from_service_account_file("secrets.json", scopes=scopes)
+except Exception as e:
+    st.error(f"خطأ في قراءة ملف المفاتيح: {e}")
     
     gc = gspread.authorize(credentials)
     sh = gc.open("My_Inventory")
