@@ -12,7 +12,7 @@ st.set_page_config(
     page_title="Tafsela Inventory Management System", layout="wide"
 )
 
-# 2. تعديل الـ CSS
+# 2. تعديل الـ CSS لتنسيق الألوان والأحجام
 st.markdown(
     """
 <style>
@@ -78,17 +78,10 @@ def get_image_base64(uploaded_file):
 
 
 try:
-  # قراءة ملف secrets.json مع إصلاح أسطر المفتاح السري تلقائياً لمنع أي إيرور
-  with open("secrets.json", "r", encoding="utf-8") as f:
-    secret_data = json.load(f)
-
-  if "private_key" in secret_data:
-    pk = secret_data["private_key"]
-    if "\\n" in pk:
-      secret_data["private_key"] = pk.replace("\\n", "\n")
-
+  # الاتصال الآمن باستخدام Streamlit Secrets بالاعتماد على متغير google_secret
+  secret_dict = json.loads(st.secrets["google_secret"])
   credentials = Credentials.from_service_account_info(
-      secret_data, scopes=scopes
+      secret_dict, scopes=scopes
   )
   gc = gspread.authorize(credentials)
   sh = gc.open("My_Inventory")
@@ -109,7 +102,7 @@ try:
     if not df.empty:
       html_table = (
           '<table style="width:100%; text-align:center; border-collapse:'
-          ' collapse; font-size: 24px;">'
+          ' collapse; font-size: 24px;"'
       )
       headers = [
           "Item ID",
