@@ -11,7 +11,7 @@ st.set_page_config(
     page_title="Tafsela Inventory Management System", layout="wide"
 )
 
-# 2. تعديل الـ CSS لتنسيق الواجهة
+# 2. تعديل الـ CSS
 st.markdown(
     """
 <style>
@@ -41,7 +41,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# 3. عرض اللوجو والعنوان في المنتصف تماماً جنب بعض
+# 3. عرض اللوجو والعنوان
 col_left, col_logo, col_title, col_right = st.columns(
     [1, 1.2, 5.8, 1], vertical_alignment="center"
 )
@@ -62,7 +62,6 @@ scopes = [
     "https://www.googleapis.com/auth/drive",
 ]
 
-
 def get_image_base64(uploaded_file):
   if uploaded_file is not None:
     image = Image.open(uploaded_file)
@@ -75,14 +74,16 @@ def get_image_base64(uploaded_file):
     return f"data:image/jpeg;base64,{img_str}"
   return ""
 
-
 try:
-  # الاتصال الآمن والمباشر باستخدام st.secrets
+  # قراءة المفتاح السري وتنظيفه
+  raw_key = st.secrets["private_key"]
+  clean_key = raw_key.replace("\\n", "\n").strip()
+
   secret_dict = {
       "type": st.secrets["type"],
       "project_id": st.secrets["project_id"],
       "private_key_id": st.secrets["private_key_id"],
-      "private_key": st.secrets["private_key"],
+      "private_key": clean_key,
       "client_email": st.secrets["client_email"],
       "client_id": st.secrets["client_id"],
       "auth_uri": st.secrets["auth_uri"],
@@ -90,6 +91,7 @@ try:
       "auth_provider_x509_cert_url": st.secrets["auth_provider_x509_cert_url"],
       "client_x509_cert_url": st.secrets["client_x509_cert_url"],
   }
+  
   credentials = Credentials.from_service_account_info(
       secret_dict, scopes=scopes
   )
@@ -115,15 +117,8 @@ try:
           ' collapse; font-size: 24px;">'
       )
       headers = [
-          "Item ID",
-          "Item Name",
-          "Image",
-          "Quantity",
-          "Purchase Price",
-          "Selling Price",
-          "Purchase Location",
-          "Shipping Cost",
-          "Notes",
+          "Item ID", "Item Name", "Image", "Quantity", "Purchase Price", 
+          "Selling Price", "Purchase Location", "Shipping Cost", "Notes"
       ]
 
       html_table += "<tr>"
@@ -137,15 +132,9 @@ try:
       for _, row in df.iterrows():
         html_table += "<tr>"
         cols_data = [
-            row.get("Item_ID", ""),
-            row.get("Item_Name", ""),
-            row.get("Image_URL", ""),
-            row.get("Quantity", ""),
-            row.get("Purchase_Price", ""),
-            row.get("Selling_Price", ""),
-            row.get("Purchase_Location", ""),
-            row.get("Shipping_Cost", ""),
-            row.get("Notes", ""),
+            row.get("Item_ID", ""), row.get("Item_Name", ""), row.get("Image_URL", ""),
+            row.get("Quantity", ""), row.get("Purchase_Price", ""), row.get("Selling_Price", ""),
+            row.get("Purchase_Location", ""), row.get("Shipping_Cost", ""), row.get("Notes", ""),
         ]
 
         for i, val in enumerate(cols_data):
@@ -153,8 +142,7 @@ try:
             html_table += (
                 f'<td style="border-bottom: 1px solid #333; padding: 12px;'
                 f' text-align: center;"><img src="{val}" width="80"'
-                ' style="border-radius: 5px; display: block; margin: 0'
-                ' auto;"></td>'
+                ' style="border-radius: 5px; display: block; margin: 0 auto;"></td>'
             )
           else:
             html_table += (
@@ -172,17 +160,14 @@ try:
     locations_list = ["Techno Print Cairo", "Supplier A", "Factory B", "Other"]
     tab_add, tab_edit = st.tabs(["➕ Add New", "✏️ Edit Existing"])
 
+    # ====== تبويب الإضافة ======
     with tab_add:
       with st.form("add_item_form"):
         item_id = st.text_input("Item ID")
         item_name = st.text_input("Item Name")
-        uploaded_image = st.file_uploader(
-            "Upload Image", type=["jpg", "jpeg", "png"]
-        )
+        uploaded_image = st.file_uploader("Upload Image", type=["jpg", "jpeg", "png"])
         quantity = st.number_input("Quantity", min_value=0, step=1)
-        purchase_price = st.number_input(
-            "Purchase Price", min_value=0.0, step=1.0
-        )
+        purchase_price = st.number_input("Purchase Price", min_value=0.0, step=1.0)
         selling_price = st.number_input("Selling Price", min_value=0.0, step=1.0)
         purchase_loc = st.selectbox("Purchase Location", locations_list)
         shipping_cost = st.number_input("Shipping Cost", min_value=0.0, step=1.0)
@@ -193,80 +178,48 @@ try:
           if item_name == "" or item_id == "":
             st.error("Please enter both Item ID and Name!")
           else:
-            image_data_string = (
-                get_image_base64(uploaded_image) if uploaded_image else ""
-            )
+            image_data_string = get_image_base64(uploaded_image) if uploaded_image else ""
             new_row = [
-                item_id,
-                item_name,
-                image_data_string,
-                quantity,
-                purchase_price,
-                selling_price,
-                purchase_loc,
-                shipping_cost,
-                notes,
+                item_id, item_name, image_data_string, quantity, purchase_price,
+                selling_price, purchase_loc, shipping_cost, notes
             ]
             worksheet.append_row(new_row)
             st.success("Added Successfully! Please refresh the page.")
 
+    # ====== تبويب التعديل ======
     with tab_edit:
-      if not df.empty and "Item_ID" in df.columns:
-        item_ids_list = df["Item_ID"].astype(str).tolist()
-        selected_edit_id = st.selectbox("Select Item ID to Edit", item_ids_list)
-        current_row = df[df["Item_ID"].astype(str) == str(selected_edit_id)].iloc[
-            0
-        ]
+      if not df.empty and "Item_Name" in df.columns:
+        # استخراج قائمة بأسماء المنتجات بدلاً من الآي دي
+        item_names_list = df["Item_Name"].astype(str).tolist()
+        
+        # اختيار المنتج بالاسم
+        selected_edit_name = st.selectbox("Select Item to Edit", item_names_list)
+        
+        # سحب بيانات الصف بالكامل بناءً على الاسم المختار
+        current_row = df[df["Item_Name"].astype(str) == str(selected_edit_name)].iloc[0]
+
+        # الاحتفاظ بالـ ID الأصلي في متغير مخفي لاستخدامه في البحث داخل جوجل شيت
+        hidden_edit_id = str(current_row.get("Item_ID", ""))
 
         c_name = str(current_row.get("Item_Name", ""))
-        c_qty = (
-            int(current_row.get("Quantity", 0))
-            if pd.notna(current_row.get("Quantity"))
-            else 0
-        )
-        c_pprice = (
-            float(current_row.get("Purchase_Price", 0.0))
-            if pd.notna(current_row.get("Purchase_Price"))
-            else 0.0
-        )
-        c_sprice = (
-            float(current_row.get("Selling_Price", 0.0))
-            if pd.notna(current_row.get("Selling_Price"))
-            else 0.0
-        )
+        c_qty = int(current_row.get("Quantity", 0)) if pd.notna(current_row.get("Quantity")) else 0
+        c_pprice = float(current_row.get("Purchase_Price", 0.0)) if pd.notna(current_row.get("Purchase_Price")) else 0.0
+        c_sprice = float(current_row.get("Selling_Price", 0.0)) if pd.notna(current_row.get("Selling_Price")) else 0.0
         c_loc = str(current_row.get("Purchase_Location", "Other"))
-        c_ship = (
-            float(current_row.get("Shipping_Cost", 0.0))
-            if pd.notna(current_row.get("Shipping_Cost"))
-            else 0.0
-        )
+        c_ship = float(current_row.get("Shipping_Cost", 0.0)) if pd.notna(current_row.get("Shipping_Cost")) else 0.0
         c_notes = str(current_row.get("Notes", ""))
-        loc_index = (
-            locations_list.index(c_loc) if c_loc in locations_list else 0
-        )
+        loc_index = locations_list.index(c_loc) if c_loc in locations_list else 0
 
         with st.form("edit_item_form"):
-          st.write("Edit the details below:")
+          st.write(f"Editing: **{c_name}**")
+          # حقل الاسم يملأ تلقائياً وقابل للتعديل
           new_name = st.text_input("Item Name", value=c_name)
-          new_image = st.file_uploader(
-              "Upload New Image (Leave empty to keep old image)",
-              type=["jpg", "jpeg", "png"],
-          )
-          new_quantity = st.number_input(
-              "Quantity", min_value=0, step=1, value=c_qty
-          )
-          new_purchase_price = st.number_input(
-              "Purchase Price", min_value=0.0, step=1.0, value=c_pprice
-          )
-          new_selling_price = st.number_input(
-              "Selling Price", min_value=0.0, step=1.0, value=c_sprice
-          )
-          new_purchase_loc = st.selectbox(
-              "Purchase Location", locations_list, index=loc_index
-          )
-          new_shipping_cost = st.number_input(
-              "Shipping Cost", min_value=0.0, step=1.0, value=c_ship
-          )
+          new_image = st.file_uploader("Upload New Image (Leave empty to keep old image)", type=["jpg", "jpeg", "png"])
+          new_quantity = st.number_input("Quantity", min_value=0, step=1, value=c_qty)
+          new_purchase_price = st.number_input("Purchase Price", min_value=0.0, step=1.0, value=c_pprice)
+          new_selling_price = st.number_input("Selling Price", min_value=0.0, step=1.0, value=c_sprice)
+          new_purchase_loc = st.selectbox("Purchase Location", locations_list, index=loc_index)
+          new_shipping_cost = st.number_input("Shipping Cost", min_value=0.0, step=1.0, value=c_ship)
           new_notes = st.text_area("Notes", value=c_notes)
 
           submitted_edit = st.form_submit_button("Update Item")
@@ -274,34 +227,22 @@ try:
             if new_name == "":
               st.error("Please enter the Item Name!")
             else:
-              cell = worksheet.find(str(selected_edit_id), in_column=1)
+              # البحث في الشيت باستخدام الـ ID المخفي لضمان الدقة المطلقة
+              cell = worksheet.find(hidden_edit_id, in_column=1)
               if cell:
                 row_num = cell.row
-                img_data_new = (
-                    get_image_base64(new_image)
-                    if new_image
-                    else df.loc[
-                        df["Item_ID"].astype(str) == str(selected_edit_id),
-                        "Image_URL",
-                    ].values[0]
-                )
+                img_data_new = get_image_base64(new_image) if new_image else df.loc[df["Item_ID"].astype(str) == hidden_edit_id, "Image_URL"].values[0]
+                
+                # تحديث الصف مع الحفاظ على الـ ID الأصلي
                 updated_row = [[
-                    selected_edit_id,
-                    new_name,
-                    img_data_new,
-                    new_quantity,
-                    new_purchase_price,
-                    new_selling_price,
-                    new_purchase_loc,
-                    new_shipping_cost,
-                    new_notes,
+                    hidden_edit_id, new_name, img_data_new, new_quantity,
+                    new_purchase_price, new_selling_price, new_purchase_loc,
+                    new_shipping_cost, new_notes
                 ]]
-                worksheet.update(
-                    values=updated_row, range_name=f"A{row_num}:I{row_num}"
-                )
+                worksheet.update(values=updated_row, range_name=f"A{row_num}:I{row_num}")
                 st.success("Updated Successfully! Please refresh the page.")
               else:
-                st.error("Item ID not found in the sheet.")
+                st.error("Error: Could not locate this item in the sheet.")
       else:
         st.info("No items available to edit.")
 
