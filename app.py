@@ -1,9 +1,8 @@
 import base64
 import io
-import json
 from PIL import Image
-import gspread
 from google.oauth2.service_account import Credentials
+import gspread
 import pandas as pd
 import streamlit as st
 
@@ -12,7 +11,7 @@ st.set_page_config(
     page_title="Tafsela Inventory Management System", layout="wide"
 )
 
-# 2. تعديل الـ CSS لتنسيق الألوان والأحجام
+# 2. تعديل الـ CSS
 st.markdown(
     """
 <style>
@@ -78,15 +77,13 @@ def get_image_base64(uploaded_file):
 
 
 try:
-  # الاتصال المباشر بإعدادات Streamlit بدون أي ملفات خارجية
+  # الاتصال الآمن والمباشر باستخدام st.secrets
   credentials = Credentials.from_service_account_info(
-      st.secrets, scopes=scopes
+      dict(st.secrets), scopes=scopes
   )
   gc = gspread.authorize(credentials)
   sh = gc.open("My_Inventory")
   worksheet = sh.sheet1
-except Exception as e:
-  st.error(f"Connection Error: {e}")
 
   data = worksheet.get_all_records()
   df = pd.DataFrame(data) if data else pd.DataFrame()
@@ -103,7 +100,7 @@ except Exception as e:
     if not df.empty:
       html_table = (
           '<table style="width:100%; text-align:center; border-collapse:'
-          ' collapse; font-size: 24px;"'
+          ' collapse; font-size: 24px;">'
       )
       headers = [
           "Item ID",
