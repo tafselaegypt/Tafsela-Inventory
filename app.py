@@ -15,6 +15,7 @@ st.set_page_config(
 st.markdown(
     """
 <style>
+    /* العناوين الأساسية */
     h1, h1 span, h1 div {
         font-size: 60px !important;
         color: white !important; 
@@ -45,13 +46,24 @@ st.markdown(
         font-size: 24px !important; 
     }
     
-    /* تكبير الكلام داخل القائمة المنسدلة قبل ما تتفتح */
-    div[data-baseweb="select"] > div, div[data-baseweb="select"] span {
+    /* ----- تحديثات قوية للقوائم المنسدلة (Dropdowns) ----- */
+    /* تكبير النص داخل المربع قبل ما تفتح القائمة */
+    div[data-baseweb="select"] {
+        font-size: 24px !important;
+    }
+    div[data-baseweb="select"] > div {
         font-size: 24px !important;
     }
     
-    /* تكبير الكلام داخل اللستة نفسها لما تفتحيها (الخيارات المتاحة) */
-    ul[data-baseweb="menu"] li, ul[role="listbox"] li, li[role="option"], li[role="option"] span {
+    /* تكبير النصوص داخل القائمة بعد ما تفتح */
+    div[role="listbox"] ul li {
+        font-size: 24px !important;
+        padding: 15px !important; /* تكبير المساحة حول كل اختيار عشان يكون واضح */
+    }
+    ul[data-baseweb="menu"] li {
+        font-size: 24px !important;
+    }
+    li[role="option"] {
         font-size: 24px !important;
     }
     
