@@ -11,7 +11,7 @@ st.set_page_config(
     page_title="Tafsela Inventory Management System", layout="wide"
 )
 
-# 2. تعديل الـ CSS
+# 2. تعديل الـ CSS لتكبير الخطوط وتنسيق الأزرار
 st.markdown(
     """
 <style>
@@ -28,12 +28,17 @@ st.markdown(
     }
     label, p, .st-emotion-cache-1wivap2 {
         color: white !important; 
-        font-size: 24px !important;
+        font-size: 26px !important; 
+        font-weight: bold !important;
     }
     button[data-baseweb="tab"] p, button[data-baseweb="tab"] span {
         color: #5ce1d6 !important;
+        font-size: 22px !important; 
     }
-    input, textarea, select {
+    input, textarea, select, .stSelectbox div {
+        font-size: 24px !important; 
+    }
+    .stNumberInput input {
         font-size: 24px !important;
     }
 </style>
@@ -157,7 +162,17 @@ try:
       st.info("No items found in the inventory.")
 
   with col2:
-    locations_list = ["Techno Print Cairo", "Supplier A", "Factory B", "Other"]
+    # بناء قائمة أماكن الشراء الديناميكية
+    base_locations = ["Techno Print Cairo", "Supplier A", "Factory B"]
+    
+    if not df.empty and "Purchase_Location" in df.columns:
+        sheet_locations = df["Purchase_Location"].dropna().astype(str).unique().tolist()
+        for loc in sheet_locations:
+            if loc and loc not in base_locations and loc != "أخرى (إضافة جديد)...":
+                base_locations.append(loc)
+    
+    base_locations.append("أخرى (إضافة جديد)...")
+    
     tab_add, tab_edit = st.tabs(["➕ Add New", "✏️ Edit Existing"])
 
     # ====== تبويب الإضافة ======
@@ -169,7 +184,12 @@ try:
         quantity = st.number_input("Quantity", min_value=0, step=1)
         purchase_price = st.number_input("Purchase Price", min_value=0.0, step=1.0)
         selling_price = st.number_input("Selling Price", min_value=0.0, step=1.0)
-        purchase_loc = st.selectbox("Purchase Location", locations_list)
+        
+        selected_loc_add = st.selectbox("Purchase Location", base_locations)
+        new_loc_add = ""
+        if selected_loc_add == "أخرى (إضافة جديد)...":
+            new_loc_add = st.text_input("Enter New Purchase Location")
+            
         shipping_cost = st.number_input("Shipping Cost", min_value=0.0, step=1.0)
         notes = st.text_area("Notes")
 
@@ -178,73 +198,44 @@ try:
           if item_name == "" or item_id == "":
             st.error("Please enter both Item ID and Name!")
           else:
+            final_loc_add = new_loc_add if selected_loc_add == "أخرى (إضافة جديد)..." and new_loc_add else selected_loc_add
             image_data_string = get_image_base64(uploaded_image) if uploaded_image else ""
             new_row = [
                 item_id, item_name, image_data_string, quantity, purchase_price,
-                selling_price, purchase_loc, shipping_cost, notes
+                selling_price, final_loc_add, shipping_cost, notes
             ]
             worksheet.append_row(new_row)
             st.success("Added Successfully! Please refresh the page.")
 
-    # ====== تبويب التعديل ======
+    # ====== تبويب التعديل والحذف ======
     with tab_edit:
       if not df.empty and "Item_Name" in df.columns:
-        # استخراج قائمة بأسماء المنتجات بدلاً من الآي دي
-        item_names_list = df["Item_Name"].astype(str).tolist()
+        item_names_list = df["Item_Name"].dropna().astype(str).tolist()
+        item_names_list = [name for name in item_names_list if name.strip() != ""]
         
-        # اختيار المنتج بالاسم
-        selected_edit_name = st.selectbox("Select Item to Edit", item_names_list)
-        
-        # سحب بيانات الصف بالكامل بناءً على الاسم المختار
-        current_row = df[df["Item_Name"].astype(str) == str(selected_edit_name)].iloc[0]
+        if item_names_list:
+          selected_edit_name = st.selectbox("Select Item to Edit", item_names_list)
+          current_row = df[df["Item_Name"].astype(str) == str(selected_edit_name)].iloc[0]
+          hidden_edit_id = str(current_row.get("Item_ID", ""))
 
-        # الاحتفاظ بالـ ID الأصلي في متغير مخفي لاستخدامه في البحث داخل جوجل شيت
-        hidden_edit_id = str(current_row.get("Item_ID", ""))
+          c_name = str(current_row.get("Item_Name", ""))
+          
+          raw_qty = current_row.get("Quantity", 0)
+          c_qty = int(raw_qty) if pd.notna(raw_qty) and str(raw_qty).strip() != "" else 0
+          
+          raw_pprice = current_row.get("Purchase_Price", 0.0)
+          c_pprice = float(raw_pprice) if pd.notna(raw_pprice) and str(raw_pprice).strip() != "" else 0.0
+          
+          raw_sprice = current_row.get("Selling_Price", 0.0)
+          c_sprice = float(raw_sprice) if pd.notna(raw_sprice) and str(raw_sprice).strip() != "" else 0.0
+          
+          c_loc = str(current_row.get("Purchase_Location", ""))
+          
+          raw_ship = current_row.get("Shipping_Cost", 0.0)
+          c_ship = float(raw_ship) if pd.notna(raw_ship) and str(raw_ship).strip() != "" else 0.0
+          
+          c_notes = str(current_row.get("Notes", ""))
+          
+          loc_index = base_locations.index(c_loc) if c_loc in base_locations else 0
 
-        c_name = str(current_row.get("Item_Name", ""))
-        c_qty = int(current_row.get("Quantity", 0)) if pd.notna(current_row.get("Quantity")) else 0
-        c_pprice = float(current_row.get("Purchase_Price", 0.0)) if pd.notna(current_row.get("Purchase_Price")) else 0.0
-        c_sprice = float(current_row.get("Selling_Price", 0.0)) if pd.notna(current_row.get("Selling_Price")) else 0.0
-        c_loc = str(current_row.get("Purchase_Location", "Other"))
-        c_ship = float(current_row.get("Shipping_Cost", 0.0)) if pd.notna(current_row.get("Shipping_Cost")) else 0.0
-        c_notes = str(current_row.get("Notes", ""))
-        loc_index = locations_list.index(c_loc) if c_loc in locations_list else 0
-
-        with st.form("edit_item_form"):
-          st.write(f"Editing: **{c_name}**")
-          # حقل الاسم يملأ تلقائياً وقابل للتعديل
-          new_name = st.text_input("Item Name", value=c_name)
-          new_image = st.file_uploader("Upload New Image (Leave empty to keep old image)", type=["jpg", "jpeg", "png"])
-          new_quantity = st.number_input("Quantity", min_value=0, step=1, value=c_qty)
-          new_purchase_price = st.number_input("Purchase Price", min_value=0.0, step=1.0, value=c_pprice)
-          new_selling_price = st.number_input("Selling Price", min_value=0.0, step=1.0, value=c_sprice)
-          new_purchase_loc = st.selectbox("Purchase Location", locations_list, index=loc_index)
-          new_shipping_cost = st.number_input("Shipping Cost", min_value=0.0, step=1.0, value=c_ship)
-          new_notes = st.text_area("Notes", value=c_notes)
-
-          submitted_edit = st.form_submit_button("Update Item")
-          if submitted_edit:
-            if new_name == "":
-              st.error("Please enter the Item Name!")
-            else:
-              # البحث في الشيت باستخدام الـ ID المخفي لضمان الدقة المطلقة
-              cell = worksheet.find(hidden_edit_id, in_column=1)
-              if cell:
-                row_num = cell.row
-                img_data_new = get_image_base64(new_image) if new_image else df.loc[df["Item_ID"].astype(str) == hidden_edit_id, "Image_URL"].values[0]
-                
-                # تحديث الصف مع الحفاظ على الـ ID الأصلي
-                updated_row = [[
-                    hidden_edit_id, new_name, img_data_new, new_quantity,
-                    new_purchase_price, new_selling_price, new_purchase_loc,
-                    new_shipping_cost, new_notes
-                ]]
-                worksheet.update(values=updated_row, range_name=f"A{row_num}:I{row_num}")
-                st.success("Updated Successfully! Please refresh the page.")
-              else:
-                st.error("Error: Could not locate this item in the sheet.")
-      else:
-        st.info("No items available to edit.")
-
-except Exception as e:
-  st.error(f"Connection Error: {e}")
+          with st.form("edit_item_form"):
