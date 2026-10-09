@@ -49,7 +49,7 @@ st.markdown(
     /* ----- تحديثات قوية للقوائم المنسدلة (Dropdowns) ----- */
     /* تكبير النص داخل المربع قبل ما تفتح القائمة */
     div[data-baseweb="select"] {
-        font-size: 24px !important;
+        font-size: 30px !important;
     }
     div[data-baseweb="select"] > div {
         font-size: 24px !important;
