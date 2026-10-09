@@ -11,7 +11,7 @@ st.set_page_config(
     page_title="Tafsela Inventory Management System", layout="wide"
 )
 
-# 2. تعديل الـ CSS لتكبير الخطوط وتنسيق الأزرار
+# 2. تعديل الـ CSS لتكبير كل الخطوط (العناوين، المدخلات، والقوائم المنسدلة)
 st.markdown(
     """
 <style>
@@ -26,20 +26,39 @@ st.markdown(
     h2, h3, h4, h5, h6 {
         color: #5ce1d6 !important; 
     }
-    label, p, .st-emotion-cache-1wivap2 {
+    
+    /* تكبير خط العناوين (Labels) فوق المربعات */
+    label, p, .st-emotion-cache-1wivap2, .st-emotion-cache-1y4p8pa {
         color: white !important; 
         font-size: 26px !important; 
         font-weight: bold !important;
     }
+    
+    /* تكبير خط تبويبات (Add New / Edit Existing) */
     button[data-baseweb="tab"] p, button[data-baseweb="tab"] span {
         color: #5ce1d6 !important;
-        font-size: 22px !important; 
-    }
-    input, textarea, select, .stSelectbox div {
         font-size: 24px !important; 
     }
-    .stNumberInput input {
+    
+    /* تكبير الكلام المكتوب داخل مربعات النصوص والأرقام */
+    input, textarea, .stNumberInput input {
+        font-size: 24px !important; 
+    }
+    
+    /* تكبير الكلام داخل القائمة المنسدلة قبل ما تتفتح */
+    div[data-baseweb="select"] > div, div[data-baseweb="select"] span {
         font-size: 24px !important;
+    }
+    
+    /* تكبير الكلام داخل اللستة نفسها لما تفتحيها (الخيارات المتاحة) */
+    ul[data-baseweb="menu"] li, ul[role="listbox"] li, li[role="option"], li[role="option"] span {
+        font-size: 24px !important;
+    }
+    
+    /* تكبير خط الكلام داخل الأزرار (Add, Update, Delete) */
+    .stButton button, .stButton button p {
+        font-size: 24px !important;
+        font-weight: bold !important;
     }
 </style>
 """,
