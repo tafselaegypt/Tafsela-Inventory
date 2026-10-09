@@ -11,34 +11,40 @@ st.set_page_config(
     page_title="Tafsela Inventory Management System", layout="wide"
 )
 
-# 2. تعديل الـ CSS الشامل (خطوط كبيرة للشاشات العادية، وتصغير تلقائي للموبايل)
+# 2. تعديل الـ CSS الشامل (بحجم خطوط أصغر قليلاً لتكون مريحة كأنك عاملة زووم 80%)
 st.markdown(
     """
 <style>
-    /* ----- الخطوط الأساسية للشاشات الكبيرة (لابتوب/كمبيوتر) ----- */
-    h1, h1 span, h1 div { font-size: 60px !important; color: white !important; font-weight: bold !important; line-height: 1.1 !important; margin: 0 !important; }
+    /* ----- الخطوط الأساسية للشاشات الكبيرة ----- */
+    /* العنوان الرئيسي كان 60، خليناه 48 */
+    h1, h1 span, h1 div { font-size: 48px !important; color: white !important; font-weight: bold !important; line-height: 1.1 !important; margin: 0 !important; }
     h2, h3, h4, h5, h6 { color: #5ce1d6 !important; }
     
-    label, p, .st-emotion-cache-1wivap2, .st-emotion-cache-1y4p8pa { color: white !important; font-size: 26px !important; font-weight: bold !important; }
-    button[data-baseweb="tab"] p, button[data-baseweb="tab"] span { color: #5ce1d6 !important; font-size: 24px !important; }
-    input, textarea, .stNumberInput input { font-size: 24px !important; }
+    /* العناوين فوق المربعات (كانت 26، خليناها 20) */
+    label, p, .st-emotion-cache-1wivap2, .st-emotion-cache-1y4p8pa { color: white !important; font-size: 20px !important; font-weight: bold !important; }
     
-    /* حل نهائي وجذري للقوائم المنسدلة (Dropdowns) */
-    .stSelectbox div[data-baseweb="select"] > div { font-size: 24px !important; }
-    div[role="listbox"] ul li, ul[data-baseweb="menu"] li { font-size: 24px !important; padding: 15px !important; }
+    /* تبويبات (Add New / Edit Existing) (كانت 24، خليناها 18) */
+    button[data-baseweb="tab"] p, button[data-baseweb="tab"] span { color: #5ce1d6 !important; font-size: 18px !important; }
     
-    /* أزرار الحفظ والحذف */
-    .stButton button, .stButton button p { font-size: 24px !important; font-weight: bold !important; }
+    /* الكلام المكتوب داخل مربعات النصوص والأرقام (كان 24، خليناه 18) */
+    input, textarea, .stNumberInput input { font-size: 18px !important; }
+    
+    /* حل نهائي وجذري للقوائم المنسدلة (Dropdowns) (كان 24، خليناه 18) */
+    .stSelectbox div[data-baseweb="select"] > div { font-size: 18px !important; }
+    div[role="listbox"] ul li, ul[data-baseweb="menu"] li { font-size: 18px !important; padding: 12px !important; }
+    
+    /* أزرار الحفظ والحذف (كانت 24، خليناها 18) */
+    .stButton button, .stButton button p { font-size: 18px !important; font-weight: bold !important; }
 
     /* ----- التجاوب (Responsiveness) للشاشات الصغيرة والموبايل ----- */
     @media (max-width: 800px) {
-        h1, h1 span, h1 div { font-size: 35px !important; text-align: center !important; }
-        label, p, .st-emotion-cache-1wivap2, .st-emotion-cache-1y4p8pa { font-size: 18px !important; }
-        input, textarea, .stNumberInput input { font-size: 18px !important; }
-        .stSelectbox div[data-baseweb="select"] > div { font-size: 18px !important; }
-        div[role="listbox"] ul li, ul[data-baseweb="menu"] li { font-size: 18px !important; padding: 10px !important; }
-        .stButton button, .stButton button p { font-size: 18px !important; }
-        button[data-baseweb="tab"] p, button[data-baseweb="tab"] span { font-size: 18px !important; }
+        h1, h1 span, h1 div { font-size: 30px !important; text-align: center !important; }
+        label, p, .st-emotion-cache-1wivap2, .st-emotion-cache-1y4p8pa { font-size: 16px !important; }
+        input, textarea, .stNumberInput input { font-size: 16px !important; }
+        .stSelectbox div[data-baseweb="select"] > div { font-size: 16px !important; }
+        div[role="listbox"] ul li, ul[data-baseweb="menu"] li { font-size: 16px !important; padding: 10px !important; }
+        .stButton button, .stButton button p { font-size: 16px !important; }
+        button[data-baseweb="tab"] p, button[data-baseweb="tab"] span { font-size: 16px !important; }
     }
 </style>
 """,
@@ -113,8 +119,9 @@ try:
         header_col, search_input_col, search_btn_col = st.columns([2, 1.5, 0.5], vertical_alignment="center")
         
         with header_col:
+            # صغرنا خط العنوان بتاع الجدول لـ 24
             st.markdown(
-                '<div style="color: white; font-size: 30px; font-weight: bold;">📋 Available Inventory</div>',
+                '<div style="color: white; font-size: 24px; font-weight: bold;">📋 Available Inventory</div>',
                 unsafe_allow_html=True,
             )
         with search_input_col:
@@ -127,11 +134,11 @@ try:
             display_df = display_df[display_df["Item_Name"].astype(str).str.contains(search_term, case=False, na=False)]
 
         if not display_df.empty:
-            # تغليف الجدول بـ div بيسمح بالتمرير الأفقي (Scroll) لو الشاشة صغيرة عشان الكلام ميدخلش في بعضه
+            # صغرنا خط الجدول نفسه لـ 16
             html_table = (
                 '<div style="width: 100%; overflow-x: auto;">'
                 '<table style="width:100%; min-width: 1000px; text-align:center; border-collapse:'
-                ' collapse; font-size: 20px; margin-top: 15px;">'
+                ' collapse; font-size: 16px; margin-top: 15px;">'
             )
             headers = [
                 "Item ID", "Item Name", "Image", "Quantity", "Purchase Price", 
@@ -158,7 +165,7 @@ try:
                     if i == 2 and str(val).startswith("data:image"):
                         html_table += (
                             f'<td style="border-bottom: 1px solid #333; padding: 12px;'
-                            f' text-align: center;"><img src="{val}" width="80"'
+                            f' text-align: center;"><img src="{val}" width="60"' # صغرنا الصورة شوية
                             ' style="border-radius: 5px; display: block; margin: 0 auto;"></td>'
                         )
                     else:
