@@ -78,14 +78,15 @@ def get_image_base64(uploaded_file):
 
 
 try:
-  # الاتصال الآمن باستخدام Streamlit Secrets بالاعتماد على متغير google_secret
-  secret_dict = json.loads(st.secrets["google_secret"])
+  # الاتصال المباشر بإعدادات Streamlit بدون أي ملفات خارجية
   credentials = Credentials.from_service_account_info(
-      secret_dict, scopes=scopes
+      st.secrets, scopes=scopes
   )
   gc = gspread.authorize(credentials)
   sh = gc.open("My_Inventory")
   worksheet = sh.sheet1
+except Exception as e:
+  st.error(f"Connection Error: {e}")
 
   data = worksheet.get_all_records()
   df = pd.DataFrame(data) if data else pd.DataFrame()
