@@ -66,8 +66,8 @@ def get_image_base64(uploaded_file):
     return ""
 
 try:
-    # قراءة المفاتيح مباشرة من إعدادات Streamlit Cloud الآمنة
-    secret_dict = dict(st.secrets)
+    # الطريقة المضمونة لقراءة السيكريت كحزمة واحدة
+    secret_dict = json.loads(st.secrets["google_secret"])
     credentials = Credentials.from_service_account_info(secret_dict, scopes=scopes)
     
     gc = gspread.authorize(credentials)
