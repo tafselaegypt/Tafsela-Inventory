@@ -1,6 +1,6 @@
 import base64
 import io
-import time  # <-- ضفنا المكتبة دي عشان تأخير الريفرش ثانية واحدة
+import time
 from PIL import Image
 from google.oauth2.service_account import Credentials
 import gspread
@@ -12,7 +12,7 @@ st.set_page_config(
     page_title="Tafsela Inventory Management System", layout="wide"
 )
 
-# 2. تعديل الـ CSS الشامل (بحجم خطوط أصغر قليلاً لتكون مريحة كأنك عاملة زووم 80%)
+# 2. تعديل الـ CSS الشامل
 st.markdown(
     """
 <style>
@@ -222,11 +222,103 @@ try:
                         ]
                         worksheet.append_row(new_row)
                         st.success("Added Successfully! Refreshing...")
-                        time.sleep(1) # استراحة ثانية واحدة
-                        st.rerun()    # تحديث وتفريغ الخانات أوتوماتيكياً
+                        time.sleep(1)
+                        st.rerun()
 
         # ====== تبويب التعديل والحذف ======
         with tab_edit:
             if not df.empty and "Item_Name" in df.columns:
                 item_names_list = df["Item_Name"].dropna().astype(str).tolist()
-                item
+                item_names_list = [name for name in item_names_list if name.strip() != ""]
+                
+                if item_names_list:
+                    selected_edit_name = st.selectbox("Select Item to Edit", item_names_list)
+                    current_row = df[df["Item_Name"].astype(str) == str(selected_edit_name)].iloc[0]
+                    hidden_edit_id = str(current_row.get("Item_ID", ""))
+
+                    c_name = str(current_row.get("Item_Name", ""))
+                    
+                    raw_qty = current_row.get("Quantity", 0)
+                    c_qty = int(raw_qty) if pd.notna(raw_qty) and str(raw_qty).strip() != "" else 0
+                    
+                    raw_pprice = current_row.get("Purchase_Price", 0.0)
+                    c_pprice = float(raw_pprice) if pd.notna(raw_pprice) and str(raw_pprice).strip() != "" else 0.0
+                    
+                    raw_sprice = current_row.get("Selling_Price", 0.0)
+                    c_sprice = float(raw_sprice) if pd.notna(raw_sprice) and str(raw_sprice).strip() != "" else 0.0
+                    
+                    c_loc = str(current_row.get("Purchase_Location", ""))
+                    
+                    raw_ship = current_row.get("Shipping_Cost", 0.0)
+                    c_ship = float(raw_ship) if pd.notna(raw_ship) and str(raw_ship).strip() != "" else 0.0
+                    
+                    c_notes = str(current_row.get("Notes", ""))
+                    
+                    loc_index = base_locations.index(c_loc) if c_loc in base_locations else 0
+
+                    with st.form("edit_item_form"):
+                        st.write(f"Editing/Deleting: **{c_name}**")
+                        new_name = st.text_input("Item Name", value=c_name)
+                        new_image = st.file_uploader("Upload New Image (Leave empty to keep old image)", type=["jpg", "jpeg", "png"])
+                        new_quantity = st.number_input("Quantity", min_value=0, step=1, value=c_qty)
+                        new_purchase_price = st.number_input("Purchase Price", min_value=0.0, step=1.0, value=c_pprice)
+                        new_selling_price = st.number_input("Selling Price", min_value=0.0, step=1.0, value=c_sprice)
+                        
+                        selected_loc_edit = st.selectbox("Purchase Location", base_locations, index=loc_index)
+                        new_loc_edit = ""
+                        if selected_loc_edit == "أخرى (إضافة جديد)...":
+                            new_loc_edit = st.text_input("Enter New Purchase Location")
+                            
+                        new_shipping_cost = st.number_input("Shipping Cost", min_value=0.0, step=1.0, value=c_ship)
+                        new_notes = st.text_area("Notes", value=c_notes)
+
+                        col_btn1, col_btn2 = st.columns(2)
+                        with col_btn1:
+                            submitted_edit = st.form_submit_button("✏️ Update Item")
+                        with col_btn2:
+                            submitted_delete = st.form_submit_button("🗑️ Delete Item")
+
+                    if submitted_edit:
+                        if new_name == "":
+                            st.error("Please enter the Item Name!")
+                        else:
+                            final_loc_edit = new_loc_edit if selected_loc_edit == "أخرى (إضافة جديد)..." and new_loc_edit else selected_loc_edit
+                            cell = worksheet.find(hidden_edit_id, in_column=1)
+                            if cell:
+                                row_num = cell.row
+                                img_data_new = get_image_base64(new_image) if new_image else df.loc[df["Item_ID"].astype(str) == hidden_edit_id, "Image_URL"].values[0]
+                                
+                                updated_row = [[
+                                    hidden_edit_id, new_name, img_data_new, new_quantity,
+                                    new_purchase_price, new_selling_price, final_loc_edit,
+                                    new_shipping_cost, new_notes
+                                ]]
+                                worksheet.update(values=updated_row, range_name=f"A{row_num}:I{row_num}")
+                                st.success("Updated Successfully! Refreshing...")
+                                time.sleep(1)
+                                st.rerun()
+                            else:
+                                st.error("Error: Could not locate this item in the sheet.")
+                            
+                    if submitted_delete:
+                        cell = worksheet.find(hidden_edit_id, in_column=1)
+                        if cell:
+                            worksheet.delete_row(cell.row)
+                            
+                            remaining_records = worksheet.get_all_values()
+                            if len(remaining_records) > 1:
+                                new_ids = [[i] for i in range(1, len(remaining_records))]
+                                worksheet.update(values=new_ids, range_name=f"A2:A{len(remaining_records)}")
+                                
+                            st.success("Deleted Successfully and IDs Re-sequenced! Refreshing...")
+                            time.sleep(1)
+                            st.rerun()
+                        else:
+                            st.error("Error: Could not locate this item in the sheet.")
+                else:
+                    st.info("لا توجد منتجات مسجلة بأسمائها للتعديل أو الحذف.")
+            else:
+                st.info("No items available to edit or delete.")
+
+except Exception as e:
+    st.error(f"Connection Error: {e}")
