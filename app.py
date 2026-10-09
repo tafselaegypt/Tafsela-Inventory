@@ -5,37 +5,31 @@ import pandas as pd
 import base64
 from PIL import Image
 import io
-import json
 
 # 1. إعدادات الصفحة
 st.set_page_config(page_title="Tafsela Inventory Management System", layout="wide")
 
-# 2. تعديل الـ CSS لمنع أي تعارض وتغيير لون العنوان للأبيض
+# 2. تعديل الـ CSS
 st.markdown("""
 <style>
-    /* إجبار العنوان الرئيسي إنه يكون 50 بيكسل وأبيض */
     h1, h1 span, h1 div {
-        font-size: 50px !important;
+        font-size: 60px !important;
         color: white !important; 
         font-weight: bold !important;
         line-height: 1.1 !important;
         padding: 0 !important;
         margin: 0 !important;
     }
-    /* تغيير لون باقي العناوين للتركواز */
     h2, h3, h4, h5, h6 {
         color: #5ce1d6 !important; 
     }
-    /* جعل النصوص العادية وأسماء الخانات باللون الأبيض وحجم 24 */
     label, p, .st-emotion-cache-1wivap2 {
         color: white !important; 
         font-size: 24px !important;
     }
-    /* الحفاظ على التبويبات (Tabs) باللون التركواز لتمييزها */
     button[data-baseweb="tab"] p, button[data-baseweb="tab"] span {
         color: #5ce1d6 !important;
     }
-    /* تكبير خط الخانات (المدخلات) */
     input, textarea, select {
         font-size: 24px !important;
     }
@@ -72,12 +66,8 @@ def get_image_base64(uploaded_file):
     return ""
 
 try:
-    try:
+    # الاتصال المباشر بملف secrets.json المرفوع على جيت هب
     credentials = Credentials.from_service_account_file("secrets.json", scopes=scopes)
-except:
-    secret_dict = dict(st.secrets)
-    credentials = Credentials.from_service_account_info(secret_dict, scopes=scopes)
-    
     gc = gspread.authorize(credentials)
     sh = gc.open("My_Inventory")
     worksheet = sh.sheet1
@@ -88,13 +78,10 @@ except:
     col1, col2 = st.columns([3, 1])
     
     with col1:
-        # عنوان الجدول باللون الأبيض
         st.markdown('<div style="color: white; font-size: 30px; font-weight: bold; margin-bottom: 15px;">📋 Available Inventory</div>', unsafe_allow_html=True)
         
         if not df.empty:
-            # بناء جدول مخصص مع محاذاة في المنتصف (text-align: center)
             html_table = '<table style="width:100%; text-align:center; border-collapse: collapse; font-size: 24px;">'
-            
             headers = ["Item ID", "Item Name", "Image", "Quantity", "Purchase Price", "Selling Price", "Purchase Location", "Shipping Cost", "Notes"]
             
             html_table += '<tr>'
