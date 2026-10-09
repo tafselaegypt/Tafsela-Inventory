@@ -7,6 +7,14 @@ import gspread
 import pandas as pd
 import streamlit as st
 
+# دالة مساعدة لمعرفة الحرف الأبجدي للعمود (A, B, C...) أوتوماتيكياً
+def get_col_letter(col_idx):
+    result = ""
+    while col_idx > 0:
+        col_idx, remainder = divmod(col_idx - 1, 26)
+        result = chr(65 + remainder) + result
+    return result
+
 # 1. إعدادات الصفحة
 st.set_page_config(
     page_title="Tafsela Inventory Management System", layout="wide"
@@ -16,22 +24,15 @@ st.set_page_config(
 st.markdown(
     """
 <style>
-    /* ----- الخطوط الأساسية للشاشات الكبيرة ----- */
     h1, h1 span, h1 div { font-size: 48px !important; color: white !important; font-weight: bold !important; line-height: 1.1 !important; margin: 0 !important; }
     h2, h3, h4, h5, h6 { color: #5ce1d6 !important; }
-    
     label, p, .st-emotion-cache-1wivap2, .st-emotion-cache-1y4p8pa { color: white !important; font-size: 20px !important; font-weight: bold !important; }
     button[data-baseweb="tab"] p, button[data-baseweb="tab"] span { color: #5ce1d6 !important; font-size: 18px !important; }
     input, textarea, .stNumberInput input { font-size: 18px !important; }
-    
-    /* حل نهائي وجذري للقوائم المنسدلة (Dropdowns) */
     .stSelectbox div[data-baseweb="select"] > div { font-size: 18px !important; }
     div[role="listbox"] ul li, ul[data-baseweb="menu"] li { font-size: 18px !important; padding: 12px !important; }
-    
-    /* أزرار الحفظ والحذف */
     .stButton button, .stButton button p { font-size: 18px !important; font-weight: bold !important; }
 
-    /* ----- التجاوب (Responsiveness) للشاشات الصغيرة والموبايل ----- */
     @media (max-width: 800px) {
         h1, h1 span, h1 div { font-size: 30px !important; text-align: center !important; }
         label, p, .st-emotion-cache-1wivap2, .st-emotion-cache-1y4p8pa { font-size: 16px !important; }
@@ -80,7 +81,6 @@ def get_image_base64(uploaded_file):
     return ""
 
 try:
-    # قراءة المفتاح السري وتنظيفه
     raw_key = st.secrets["private_key"]
     clean_key = raw_key.replace("\\n", "\n").strip()
 
@@ -104,13 +104,26 @@ try:
     sh = gc.open("My_Inventory")
     worksheet = sh.sheet1
 
-    data = worksheet.get_all_records()
-    df = pd.DataFrame(data) if data else pd.DataFrame()
+    raw_data = worksheet.get_all_values()
+    
+    if len(raw_data) > 0:
+        headers_row = raw_data[0]
+        # تنظيف العناوين لضمان المطابقة
+        clean_headers = [str(h).strip() if str(h).strip() != "" else f"Unnamed_{i}" for i, h in enumerate(headers_row)]
+        
+        df = pd.DataFrame(raw_data[1:], columns=clean_headers)
+        
+        numeric_cols = ["Item_ID", "Quantity", "Purchase_Price", "Selling_Price", "Shipping_Cost"]
+        for col in numeric_cols:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+    else:
+        clean_headers = []
+        df = pd.DataFrame()
 
     col1, col2 = st.columns([3, 1])
 
     with col1:
-        # ترتيب العنوان ومربع البحث وزر البحث جنب بعض
         header_col, search_input_col, search_btn_col = st.columns([2, 1.5, 0.5], vertical_alignment="center")
         
         with header_col:
@@ -124,20 +137,25 @@ try:
             search_btn = st.button("Search", use_container_width=True)
 
         display_df = df.copy()
-        if not display_df.empty and search_term:
+        if not display_df.empty and "Item_Name" in display_df.columns and search_term:
             display_df = display_df[display_df["Item_Name"].astype(str).str.contains(search_term, case=False, na=False)]
 
-        if not display_df.empty:
+        if not display_df.empty and "Item_Name" in display_df.columns:
             html_table = (
                 '<div style="width: 100%; overflow-x: auto;">'
                 '<table style="width:100%; min-width: 1000px; text-align:center; border-collapse:'
                 ' collapse; font-size: 16px; margin-top: 15px;">'
             )
-            # إضافة عمود الألوان للجدول
+            
+            has_colors_col = "Colors" in display_df.columns
+            
             headers = [
                 "Item ID", "Item Name", "Image", "Quantity", "Purchase Price", 
-                "Selling Price", "Purchase Location", "Shipping Cost", "Colors", "Notes"
+                "Selling Price", "Purchase Location", "Shipping Cost"
             ]
+            if has_colors_col:
+                headers.append("Colors")
+            headers.append("Notes")
 
             html_table += "<tr>"
             for h in headers:
@@ -152,8 +170,13 @@ try:
                 cols_data = [
                     row.get("Item_ID", ""), row.get("Item_Name", ""), row.get("Image_URL", ""),
                     row.get("Quantity", ""), row.get("Purchase_Price", ""), row.get("Selling_Price", ""),
-                    row.get("Purchase_Location", ""), row.get("Shipping_Cost", ""), row.get("Colors", ""), row.get("Notes", ""),
+                    row.get("Purchase_Location", ""), row.get("Shipping_Cost", "")
                 ]
+                
+                if has_colors_col:
+                    cols_data.append(row.get("Colors", ""))
+                    
+                cols_data.append(row.get("Notes", ""))
 
                 for i, val in enumerate(cols_data):
                     if i == 2 and str(val).startswith("data:image"):
@@ -183,7 +206,7 @@ try:
         if not df.empty and "Purchase_Location" in df.columns:
             sheet_locations = df["Purchase_Location"].dropna().astype(str).unique().tolist()
             for loc in sheet_locations:
-                if loc and loc not in base_locations and loc != "أخرى (إضافة جديد)...":
+                if loc and str(loc).strip() != "" and loc not in base_locations and loc != "أخرى (إضافة جديد)...":
                     base_locations.append(loc)
         
         base_locations.append("أخرى (إضافة جديد)...")
@@ -192,7 +215,6 @@ try:
 
         # ====== تبويب الإضافة ======
         with tab_add:
-            # نقلت الـ Selectbox بره الـ form عشان الـ if condition بتاعها يشتغل ويظهر المربع الجديد
             selected_loc_add = st.selectbox("Purchase Location", base_locations, key="add_loc_select")
             new_loc_add = ""
             if selected_loc_add == "أخرى (إضافة جديد)...":
@@ -219,15 +241,34 @@ try:
                     else:
                         final_loc_add = new_loc_add if selected_loc_add == "أخرى (إضافة جديد)..." and new_loc_add else selected_loc_add
                         image_data_string = get_image_base64(uploaded_image) if uploaded_image else ""
-                        
                         next_id = len(df) + 1 if not df.empty else 1
                         
-                        # إضافة الألوان للبيانات المرسلة لجوجل شيت
-                        new_row = [
-                            next_id, item_name, image_data_string, quantity, purchase_price,
-                            selling_price, final_loc_add, shipping_cost, item_colors, notes
-                        ]
-                        worksheet.append_row(new_row)
+                        # تجميع البيانات الجديدة في قاموس (Dictionary)
+                        new_row_dict = {
+                            "Item_ID": next_id,
+                            "Item_Name": item_name,
+                            "Image_URL": image_data_string,
+                            "Quantity": quantity,
+                            "Purchase_Price": purchase_price,
+                            "Selling_Price": selling_price,
+                            "Purchase_Location": final_loc_add,
+                            "Shipping_Cost": shipping_cost,
+                            "Colors": item_colors,
+                            "Notes": notes
+                        }
+
+                        # الخوارزمية الذكية: ترتيب البيانات بناءً على ترتيب الأعمدة الفعلي في جوجل شيت
+                        new_row = []
+                        for h in clean_headers:
+                            if h in new_row_dict:
+                                new_row.append(new_row_dict[h])
+                            else:
+                                new_row.append("") # لو في عمود غريب، هنسيبه فاضي عشان منبوظش الشيت
+                        
+                        # الكتابة في أول صف فاضي بدقة
+                        next_row = len(raw_data) + 1
+                        worksheet.update(values=[new_row], range_name=f"A{next_row}")
+                        
                         st.success("Added Successfully! Refreshing...")
                         time.sleep(1)
                         st.rerun()
@@ -236,7 +277,7 @@ try:
         with tab_edit:
             if not df.empty and "Item_Name" in df.columns:
                 item_names_list = df["Item_Name"].dropna().astype(str).tolist()
-                item_names_list = [name for name in item_names_list if name.strip() != ""]
+                item_names_list = [name for name in item_names_list if str(name).strip() != ""]
                 
                 if item_names_list:
                     selected_edit_name = st.selectbox("Select Item to Edit", item_names_list)
@@ -244,27 +285,22 @@ try:
                     hidden_edit_id = str(current_row.get("Item_ID", ""))
 
                     c_name = str(current_row.get("Item_Name", ""))
-                    raw_qty = current_row.get("Quantity", 0)
-                    c_qty = int(raw_qty) if pd.notna(raw_qty) and str(raw_qty).strip() != "" else 0
-                    raw_pprice = current_row.get("Purchase_Price", 0.0)
-                    c_pprice = float(raw_pprice) if pd.notna(raw_pprice) and str(raw_pprice).strip() != "" else 0.0
-                    raw_sprice = current_row.get("Selling_Price", 0.0)
-                    c_sprice = float(raw_sprice) if pd.notna(raw_sprice) and str(raw_sprice).strip() != "" else 0.0
+                    c_qty = int(current_row.get("Quantity", 0))
+                    c_pprice = float(current_row.get("Purchase_Price", 0.0))
+                    c_sprice = float(current_row.get("Selling_Price", 0.0))
                     c_loc = str(current_row.get("Purchase_Location", ""))
-                    raw_ship = current_row.get("Shipping_Cost", 0.0)
-                    c_ship = float(raw_ship) if pd.notna(raw_ship) and str(raw_ship).strip() != "" else 0.0
-                    c_colors = str(current_row.get("Colors", ""))
+                    c_ship = float(current_row.get("Shipping_Cost", 0.0))
+                    c_colors = str(current_row.get("Colors", "")) if "Colors" in current_row else ""
                     c_notes = str(current_row.get("Notes", ""))
                     
                     loc_index = base_locations.index(c_loc) if c_loc in base_locations else 0
 
-                    # نقلت الـ Selectbox والـ Checkbox بره الـ form عشان التفاعل يشتغل
                     selected_loc_edit = st.selectbox("Purchase Location", base_locations, index=loc_index, key="edit_loc_select")
                     new_loc_edit = ""
                     if selected_loc_edit == "أخرى (إضافة جديد)...":
                         new_loc_edit = st.text_input("Enter New Purchase Location", key="edit_new_loc")
                         
-                    edit_has_colors = st.checkbox("هل يوجد ألوان؟ (Has Colors?)", value=bool(c_colors), key="edit_has_colors")
+                    edit_has_colors = st.checkbox("هل يوجد ألوان؟ (Has Colors?)", value=bool(c_colors.strip()), key="edit_has_colors")
                     new_colors = ""
                     if edit_has_colors:
                          new_colors = st.text_input("Available Colors", value=c_colors, key="edit_colors")
@@ -285,24 +321,47 @@ try:
                         with col_btn2:
                             submitted_delete = st.form_submit_button("🗑️ Delete Item")
 
+                    # تحديد مكان الـ ID بذكاء عشان الحذف والتعديل ميضربش
+                    cell = None
+                    if "Item_ID" in clean_headers:
+                        col_idx = clean_headers.index("Item_ID") + 1
+                        cell = worksheet.find(hidden_edit_id, in_column=col_idx)
+                    else:
+                        cell = worksheet.find(hidden_edit_id, in_column=1)
+
                     if submitted_edit:
                         if new_name == "":
                             st.error("Please enter the Item Name!")
                         else:
                             final_loc_edit = new_loc_edit if selected_loc_edit == "أخرى (إضافة جديد)..." and new_loc_edit else selected_loc_edit
-                            cell = worksheet.find(hidden_edit_id, in_column=1)
                             if cell:
                                 row_num = cell.row
                                 img_data_new = get_image_base64(new_image) if new_image else df.loc[df["Item_ID"].astype(str) == hidden_edit_id, "Image_URL"].values[0]
                                 
-                                # تحديث البيانات شاملة الألوان
-                                updated_row = [[
-                                    hidden_edit_id, new_name, img_data_new, new_quantity,
-                                    new_purchase_price, new_selling_price, final_loc_edit,
-                                    new_shipping_cost, new_colors, new_notes
-                                ]]
-                                # تم توسيع النطاق لـ J ليشمل عمود الألوان
-                                worksheet.update(values=updated_row, range_name=f"A{row_num}:J{row_num}")
+                                updated_row_dict = {
+                                    "Item_ID": hidden_edit_id,
+                                    "Item_Name": new_name,
+                                    "Image_URL": img_data_new,
+                                    "Quantity": new_quantity,
+                                    "Purchase_Price": new_purchase_price,
+                                    "Selling_Price": new_selling_price,
+                                    "Purchase_Location": final_loc_edit,
+                                    "Shipping_Cost": new_shipping_cost,
+                                    "Colors": new_colors,
+                                    "Notes": new_notes
+                                }
+                                
+                                # الخوارزمية الذكية للتعديل (تحافظ على الأعمدة القديمة لو موجودة)
+                                updated_row = []
+                                for h in clean_headers:
+                                    if h in updated_row_dict:
+                                        updated_row.append(updated_row_dict[h])
+                                    else:
+                                        val = current_row.get(h, "")
+                                        existing_val = "" if pd.isna(val) else str(val)
+                                        updated_row.append(existing_val)
+
+                                worksheet.update(values=[updated_row], range_name=f"A{row_num}")
                                 st.success("Updated Successfully! Refreshing...")
                                 time.sleep(1)
                                 st.rerun()
@@ -310,14 +369,15 @@ try:
                                 st.error("Error: Could not locate this item in the sheet.")
                             
                     if submitted_delete:
-                        cell = worksheet.find(hidden_edit_id, in_column=1)
                         if cell:
                             worksheet.delete_row(cell.row)
-                            
                             remaining_records = worksheet.get_all_values()
-                            if len(remaining_records) > 1:
+                            
+                            # إعادة ترتيب الـ IDs بذكاء في العمود الصح
+                            if len(remaining_records) > 1 and "Item_ID" in clean_headers:
                                 new_ids = [[i] for i in range(1, len(remaining_records))]
-                                worksheet.update(values=new_ids, range_name=f"A2:A{len(remaining_records)}")
+                                col_letter = get_col_letter(clean_headers.index("Item_ID") + 1)
+                                worksheet.update(values=new_ids, range_name=f"{col_letter}2:{col_letter}{len(remaining_records)}")
                                 
                             st.success("Deleted Successfully and IDs Re-sequenced! Refreshing...")
                             time.sleep(1)
