@@ -11,66 +11,34 @@ st.set_page_config(
     page_title="Tafsela Inventory Management System", layout="wide"
 )
 
-# 2. تعديل الـ CSS لتكبير كل الخطوط (العناوين، المدخلات، والقوائم المنسدلة)
+# 2. تعديل الـ CSS الشامل (خطوط كبيرة للشاشات العادية، وتصغير تلقائي للموبايل)
 st.markdown(
     """
 <style>
-    /* العناوين الأساسية */
-    h1, h1 span, h1 div {
-        font-size: 60px !important;
-        color: white !important; 
-        font-weight: bold !important;
-        line-height: 1.1 !important;
-        padding: 0 !important;
-        margin: 0 !important;
-    }
-    h2, h3, h4, h5, h6 {
-        color: #5ce1d6 !important; 
-    }
+    /* ----- الخطوط الأساسية للشاشات الكبيرة (لابتوب/كمبيوتر) ----- */
+    h1, h1 span, h1 div { font-size: 60px !important; color: white !important; font-weight: bold !important; line-height: 1.1 !important; margin: 0 !important; }
+    h2, h3, h4, h5, h6 { color: #5ce1d6 !important; }
     
-    /* تكبير خط العناوين (Labels) فوق المربعات */
-    label, p, .st-emotion-cache-1wivap2, .st-emotion-cache-1y4p8pa {
-        color: white !important; 
-        font-size: 26px !important; 
-        font-weight: bold !important;
-    }
+    label, p, .st-emotion-cache-1wivap2, .st-emotion-cache-1y4p8pa { color: white !important; font-size: 26px !important; font-weight: bold !important; }
+    button[data-baseweb="tab"] p, button[data-baseweb="tab"] span { color: #5ce1d6 !important; font-size: 24px !important; }
+    input, textarea, .stNumberInput input { font-size: 24px !important; }
     
-    /* تكبير خط تبويبات (Add New / Edit Existing) */
-    button[data-baseweb="tab"] p, button[data-baseweb="tab"] span {
-        color: #5ce1d6 !important;
-        font-size: 24px !important; 
-    }
+    /* حل نهائي وجذري للقوائم المنسدلة (Dropdowns) */
+    .stSelectbox div[data-baseweb="select"] > div { font-size: 24px !important; }
+    div[role="listbox"] ul li, ul[data-baseweb="menu"] li { font-size: 24px !important; padding: 15px !important; }
     
-    /* تكبير الكلام المكتوب داخل مربعات النصوص والأرقام */
-    input, textarea, .stNumberInput input {
-        font-size: 24px !important; 
-    }
-    
-    /* ----- تحديثات قوية للقوائم المنسدلة (Dropdowns) ----- */
-    /* تكبير النص داخل المربع قبل ما تفتح القائمة */
-    div[data-baseweb="select"] {
-        font-size: 30px !important;
-    }
-    div[data-baseweb="select"] > div {
-        font-size: 24px !important;
-    }
-    
-    /* تكبير النصوص داخل القائمة بعد ما تفتح */
-    div[role="listbox"] ul li {
-        font-size: 24px !important;
-        padding: 15px !important; /* تكبير المساحة حول كل اختيار عشان يكون واضح */
-    }
-    ul[data-baseweb="menu"] li {
-        font-size: 24px !important;
-    }
-    li[role="option"] {
-        font-size: 24px !important;
-    }
-    
-    /* تكبير خط الكلام داخل الأزرار (Add, Update, Delete) */
-    .stButton button, .stButton button p {
-        font-size: 24px !important;
-        font-weight: bold !important;
+    /* أزرار الحفظ والحذف */
+    .stButton button, .stButton button p { font-size: 24px !important; font-weight: bold !important; }
+
+    /* ----- التجاوب (Responsiveness) للشاشات الصغيرة والموبايل ----- */
+    @media (max-width: 800px) {
+        h1, h1 span, h1 div { font-size: 35px !important; text-align: center !important; }
+        label, p, .st-emotion-cache-1wivap2, .st-emotion-cache-1y4p8pa { font-size: 18px !important; }
+        input, textarea, .stNumberInput input { font-size: 18px !important; }
+        .stSelectbox div[data-baseweb="select"] > div { font-size: 18px !important; }
+        div[role="listbox"] ul li, ul[data-baseweb="menu"] li { font-size: 18px !important; padding: 10px !important; }
+        .stButton button, .stButton button p { font-size: 18px !important; }
+        button[data-baseweb="tab"] p, button[data-baseweb="tab"] span { font-size: 18px !important; }
     }
 </style>
 """,
@@ -150,21 +118,20 @@ try:
                 unsafe_allow_html=True,
             )
         with search_input_col:
-            # مربع إدخال البحث
             search_term = st.text_input("Search", label_visibility="collapsed", placeholder="🔍 ابحث باسم المنتج...")
         with search_btn_col:
-            # زر البحث
             search_btn = st.button("Search", use_container_width=True)
 
-        # فلترة البيانات بناءً على كلمة البحث
         display_df = df.copy()
         if not display_df.empty and search_term:
             display_df = display_df[display_df["Item_Name"].astype(str).str.contains(search_term, case=False, na=False)]
 
         if not display_df.empty:
+            # تغليف الجدول بـ div بيسمح بالتمرير الأفقي (Scroll) لو الشاشة صغيرة عشان الكلام ميدخلش في بعضه
             html_table = (
-                '<table style="width:100%; text-align:center; border-collapse:'
-                ' collapse; font-size: 24px; margin-top: 15px;">'
+                '<div style="width: 100%; overflow-x: auto;">'
+                '<table style="width:100%; min-width: 1000px; text-align:center; border-collapse:'
+                ' collapse; font-size: 20px; margin-top: 15px;">'
             )
             headers = [
                 "Item ID", "Item Name", "Image", "Quantity", "Purchase Price", 
@@ -200,7 +167,7 @@ try:
                             f' padding: 12px; text-align: center;">{val}</td>'
                         )
                 html_table += "</tr>"
-            html_table += "</table>"
+            html_table += "</table></div>"
 
             st.markdown(html_table, unsafe_allow_html=True)
         else:
@@ -210,7 +177,6 @@ try:
                 st.info("No items found in the inventory.")
 
     with col2:
-        # بناء قائمة أماكن الشراء الديناميكية
         base_locations = ["Techno Print Cairo", "Supplier A", "Factory B"]
         
         if not df.empty and "Purchase_Location" in df.columns:
