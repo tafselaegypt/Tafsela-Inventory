@@ -5,7 +5,7 @@ import pandas as pd
 import base64
 from PIL import Image
 import io
-import json  <-- دي اللي كانت ناقصة
+import json  
 
 # 1. إعدادات الصفحة
 st.set_page_config(page_title="Tafsela Inventory Management System", layout="wide")
