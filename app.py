@@ -11,7 +11,7 @@ st.set_page_config(
     page_title="Tafsela Inventory Management System", layout="wide"
 )
 
-# 2. تعديل الـ CSS
+# 2. تعديل الـ CSS لتنسيق الواجهة
 st.markdown(
     """
 <style>
@@ -78,8 +78,20 @@ def get_image_base64(uploaded_file):
 
 try:
   # الاتصال الآمن والمباشر باستخدام st.secrets
+  secret_dict = {
+      "type": st.secrets["type"],
+      "project_id": st.secrets["project_id"],
+      "private_key_id": st.secrets["private_key_id"],
+      "private_key": st.secrets["private_key"],
+      "client_email": st.secrets["client_email"],
+      "client_id": st.secrets["client_id"],
+      "auth_uri": st.secrets["auth_uri"],
+      "token_uri": st.secrets["token_uri"],
+      "auth_provider_x509_cert_url": st.secrets["auth_provider_x509_cert_url"],
+      "client_x509_cert_url": st.secrets["client_x509_cert_url"],
+  }
   credentials = Credentials.from_service_account_info(
-      dict(st.secrets), scopes=scopes
+      secret_dict, scopes=scopes
   )
   gc = gspread.authorize(credentials)
   sh = gc.open("My_Inventory")
