@@ -66,16 +66,15 @@ def get_image_base64(uploaded_file):
     return ""
 
 try:
-    # الاتصال المباشر بملف secrets.json المرفوع على جيت هب
-    credentials = Credentials.from_service_account_file("secrets.json", scopes=scopes)
+    # قراءة المفاتيح مباشرة من إعدادات Streamlit Cloud الآمنة
+    secret_dict = dict(st.secrets)
+    credentials = Credentials.from_service_account_info(secret_dict, scopes=scopes)
+    
     gc = gspread.authorize(credentials)
     sh = gc.open("My_Inventory")
     worksheet = sh.sheet1
-    
-    data = worksheet.get_all_records()
-    df = pd.DataFrame(data) if data else pd.DataFrame()
-
-    col1, col2 = st.columns([3, 1])
+except Exception as e:
+    st.error(f"Connection Error: {e}")
     
     with col1:
         st.markdown('<div style="color: white; font-size: 30px; font-weight: bold; margin-bottom: 15px;">📋 Available Inventory</div>', unsafe_allow_html=True)
