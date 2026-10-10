@@ -8,14 +8,6 @@ from google.oauth2.service_account import Credentials
 import gspread
 import pandas as pd
 import streamlit as st
-from streamlit_cookies_manager import EncryptedCookieManager
-
-# ==========================================
-# Cookie Manager Setup (تثبيت إدارة الكوكيز)
-# ==========================================
-cookies = EncryptedCookieManager(prefix="tafsela_app_", password="tafsela_secure_secret_key_2026")
-if not cookies.ready():
-    st.stop()
 
 # ==========================================
 # Helper Functions
@@ -52,27 +44,12 @@ def load_data_safe(raw_values):
             safe_data.append(row[:len(headers)])
     return pd.DataFrame(safe_data, columns=headers), headers
 
-def ensure_worksheet(sh, title, default_headers):
-    try:
-        return sh.worksheet(title)
-    except:
-        ws = sh.add_worksheet(title=title, rows=1000, cols=max(10, len(default_headers)+2))
-        ws.append_row(default_headers)
-        return ws
-
 # ==========================================
-# Page Config & Session State (ربط الكوكيز)
+# Page Config & Session State
 # ==========================================
 st.set_page_config(page_title="Tafsela ERP System", layout="wide", initial_sidebar_state="expanded")
 
-if 'logged_in' not in st.session_state:
-    if cookies.get("logged_in") == "true":
-        st.session_state.logged_in = True
-        st.session_state.user_email = cookies.get("user_email", "")
-        st.session_state.is_admin = (cookies.get("is_admin", "false") == "true")
-    else:
-        st.session_state.logged_in = False
-
+if 'logged_in' not in st.session_state: st.session_state.logged_in = False
 if 'user_email' not in st.session_state: st.session_state.user_email = ""
 if 'is_admin' not in st.session_state: st.session_state.is_admin = False
 if 'app_mode' not in st.session_state: st.session_state.app_mode = "📦 المخزون الأساسي (الخامات)"
@@ -97,7 +74,7 @@ st.markdown(
 )
 
 # ==========================================
-# Database Connection
+# Database Connection & Caching
 # ==========================================
 @st.cache_resource(show_spinner=False)
 def init_connection():
@@ -115,11 +92,6 @@ def init_connection():
 
 try:
     sh = init_connection()
-    ws_users = ensure_worksheet(sh, "Users", ["Email", "Password", "Status", "Role"])
-    worksheet = sh.sheet1 
-    ws_supplies = ensure_worksheet(sh, "Supplies", ["Supply_ID", "Supply_Name", "Image_URL", "Quantity", "Cost_Price", "Supplier_Name", "Min_Threshold", "Notes"])
-    ws_invoices = ensure_worksheet(sh, "Invoices", ["Invoice_ID", "Date", "Supplier_Location", "Total_Amount", "Image_URL", "Notes"])
-    ws_prod = ensure_worksheet(sh, "Products", ["Product_ID", "Product_Name", "Image_URL", "Quantity", "Display_Location", "Cost_Price", "Selling_Price", "Profit", "Is_Sold", "Sale_Date", "Customer_Name", "Notes"])
 except Exception as e:
     st.error(f"Database Connection Error: {e}")
     st.stop()
@@ -171,13 +143,6 @@ if not st.session_state.logged_in:
                                     st.session_state.logged_in = True
                                     st.session_state.user_email = l_email
                                     st.session_state.is_admin = (user_row['Role'] == 'Admin')
-                                    
-                                    # حفظ البيانات في الكوكيز
-                                    cookies["logged_in"] = "true"
-                                    cookies["user_email"] = l_email
-                                    cookies["is_admin"] = "true" if user_row['Role'] == 'Admin' else "false"
-                                    cookies.save()
-                                    
                                     st.success("Login successful! Redirecting...")
                                     time.sleep(1); st.rerun()
                                 else: st.warning("Account Pending. Please wait for Admin approval.")
@@ -233,16 +198,9 @@ else:
             st.session_state.logged_in = False
             st.session_state.user_email = ""
             st.session_state.is_admin = False
-            
-            # مسح الكوكيز عند تسجيل الخروج
-            cookies["logged_in"] = "false"
-            cookies["user_email"] = ""
-            cookies["is_admin"] = "false"
-            cookies.save()
-            
             st.rerun()
 
-    # --- تجهيز الداتا من الذاكرة المؤقتة ---
+    # --- تجهيز الداتا من الذاكرة ---
     df, clean_headers = load_data_safe(all_data["inventory"])
     if not df.empty:
         if "Supplier_Name" not in clean_headers: clean_headers.append("Supplier_Name")
@@ -340,7 +298,7 @@ else:
                                 "Supplier_Name": new_sup if sup_sel == "مورد جديد..." else sup_sel, 
                                 "Services_Cost": serv_cost, "Min_Threshold": 5, "Colors": colors, "Notes": notes
                             }
-                            worksheet.update(values=[[new_row_dict.get(h, "") for h in clean_headers]], range_name=f"A{len(all_data['inventory']) + 1}")
+                            sh.get_worksheet(0).update(values=[[new_row_dict.get(h, "") for h in clean_headers]], range_name=f"A{len(all_data['inventory']) + 1}")
                             st.cache_data.clear()
                             st.success("تم الإضافة!"); time.sleep(1); st.rerun()
 
@@ -368,7 +326,8 @@ else:
                             with c_b1: sub_e = st.form_submit_button("✏️ تحديث")
                             with c_b2: sub_d = st.form_submit_button("🗑️ حذف")
 
-                        cell = worksheet.find(hid_id, in_column=clean_headers.index("Item_ID")+1) if "Item_ID" in clean_headers else worksheet.find(hid_id, in_column=1)
+                        ws_inv = sh.get_worksheet(0)
+                        cell = ws_inv.find(hid_id, in_column=clean_headers.index("Item_ID")+1) if "Item_ID" in clean_headers else ws_inv.find(hid_id, in_column=1)
 
                         if sub_e and cell:
                             up_dict = {
@@ -377,12 +336,12 @@ else:
                                 "Supplier_Name": e_new_sup if e_sup_sel == "مورد جديد..." else e_sup_sel,
                                 "Services_Cost": e_scost, "Min_Threshold": c_row.get("Min_Threshold", 5), "Colors": e_colors, "Notes": e_notes
                             }
-                            worksheet.update(values=[[up_dict.get(h, str(c_row.get(h, ""))) for h in clean_headers]], range_name=f"A{cell.row}")
+                            ws_inv.update(values=[[up_dict.get(h, str(c_row.get(h, ""))) for h in clean_headers]], range_name=f"A{cell.row}")
                             st.cache_data.clear()
                             st.success("تم التحديث!"); time.sleep(1); st.rerun()
 
                         if sub_d and cell:
-                            worksheet.delete_row(cell.row)
+                            ws_inv.delete_row(cell.row)
                             st.cache_data.clear()
                             st.success("تم الحذف!"); time.sleep(1); st.rerun()
 
@@ -475,7 +434,7 @@ else:
                                 "Date": str(inv_date), "Supplier_Location": inv_loc, "Total_Amount": inv_amt,
                                 "Image_URL": get_image_base64(inv_img) if inv_img else "", "Notes": inv_notes
                             }
-                            ws_invoices.update(values=[[new_inv_dict.get(h, "") for h in head_invoices]], range_name=f"A{len(all_data['invoices']) + 1}")
+                            sh.worksheet("Invoices").update(values=[[new_inv_dict.get(h, "") for h in head_invoices]], range_name=f"A{len(all_data['invoices']) + 1}")
                             st.cache_data.clear()
                             st.success("تم أرشفة الفاتورة بنجاح!"); time.sleep(1); st.rerun()
                         else: st.error("يرجى إدخال مكان الشراء على الأقل.")
@@ -502,7 +461,8 @@ else:
                             with c_ie1: sub_ie_e = st.form_submit_button("✏️ تحديث الفاتورة")
                             with c_ie2: sub_ie_d = st.form_submit_button("🗑️ حذف الفاتورة")
                             
-                        cell_inv = ws_invoices.find(inv_id_to_edit, in_column=head_invoices.index("Invoice_ID")+1) if "Invoice_ID" in head_invoices else ws_invoices.find(inv_id_to_edit, in_column=1)
+                        ws_invs = sh.worksheet("Invoices")
+                        cell_inv = ws_invs.find(inv_id_to_edit, in_column=head_invoices.index("Invoice_ID")+1) if "Invoice_ID" in head_invoices else ws_invs.find(inv_id_to_edit, in_column=1)
                         
                         if sub_ie_e and cell_inv:
                             up_inv_dict = {
@@ -510,12 +470,12 @@ else:
                                 "Total_Amount": e_inv_amt, "Image_URL": get_image_base64(e_inv_img) if e_inv_img else str(c_inv_row.get("Image_URL", "")),
                                 "Notes": e_inv_notes
                             }
-                            ws_invoices.update(values=[[up_inv_dict.get(h, str(c_inv_row.get(h, ""))) for h in head_invoices]], range_name=f"A{cell_inv.row}")
+                            ws_invs.update(values=[[up_inv_dict.get(h, str(c_inv_row.get(h, ""))) for h in head_invoices]], range_name=f"A{cell_inv.row}")
                             st.cache_data.clear()
                             st.success("تم تحديث بيانات الفاتورة!"); time.sleep(1); st.rerun()
                             
                         if sub_ie_d and cell_inv:
-                            ws_invoices.delete_row(cell_inv.row)
+                            ws_invs.delete_row(cell_inv.row)
                             st.cache_data.clear()
                             st.success("تم حذف الفاتورة!"); time.sleep(1); st.rerun()
 
@@ -535,9 +495,10 @@ else:
                     for _, row in pending_users.iterrows():
                         st.write(f"📧 Email: **{row.get('Email', '')}**")
                         if st.button(f"✅ Approve", key=f"app_{row.get('Email', '')}"):
-                            cell = ws_users.find(row.get('Email', ''), in_column=1)
+                            ws_u = sh.worksheet("Users")
+                            cell = ws_u.find(row.get('Email', ''), in_column=1)
                             if cell:
-                                ws_users.update_cell(cell.row, 3, "Approved") 
+                                ws_u.update_cell(cell.row, 3, "Approved") 
                                 st.cache_data.clear()
                                 st.success(f"Approved {row.get('Email', '')} successfully!")
                                 time.sleep(1); st.rerun()
@@ -558,11 +519,12 @@ else:
                     with st.form("thresh_form"):
                         new_thresh = st.number_input("الحد الأدنى للتنبيه", min_value=0, step=1, value=int(c_row_th.get("Min_Threshold", 5)))
                         if st.form_submit_button("💾 حفظ الإعدادات"):
-                            cell_th = worksheet.find(hid_id_th, in_column=clean_headers.index("Item_ID")+1) if "Item_ID" in clean_headers else worksheet.find(hid_id_th, in_column=1)
+                            ws_inv = sh.get_worksheet(0)
+                            cell_th = ws_inv.find(hid_id_th, in_column=clean_headers.index("Item_ID")+1) if "Item_ID" in clean_headers else ws_inv.find(hid_id_th, in_column=1)
                             if cell_th:
                                 up_dict_th = c_row_th.to_dict()
                                 up_dict_th["Min_Threshold"] = new_thresh
-                                worksheet.update(values=[[up_dict_th.get(h, "") for h in clean_headers]], range_name=f"A{cell_th.row}")
+                                ws_inv.update(values=[[up_dict_th.get(h, "") for h in clean_headers]], range_name=f"A{cell_th.row}")
                                 st.cache_data.clear()
                                 st.success("تم الحفظ!"); time.sleep(1); st.rerun()
             else: st.info("لا توجد خامات.")
@@ -577,11 +539,12 @@ else:
                     with st.form("thresh_sup_form"):
                         new_s_thresh = st.number_input("الحد الأدنى للتنبيه", min_value=0, step=1, value=int(c_row_sth.get("Min_Threshold", 10)))
                         if st.form_submit_button("💾 حفظ الإعدادات للمستلزم"):
-                            cell_sth = ws_supplies.find(hid_id_sth, in_column=head_supplies.index("Supply_ID")+1) if "Supply_ID" in head_supplies else ws_supplies.find(hid_id_sth, in_column=1)
+                            ws_sup = sh.worksheet("Supplies")
+                            cell_sth = ws_sup.find(hid_id_sth, in_column=head_supplies.index("Supply_ID")+1) if "Supply_ID" in head_supplies else ws_sup.find(hid_id_sth, in_column=1)
                             if cell_sth:
                                 up_dict_sth = c_row_sth.to_dict()
                                 up_dict_sth["Min_Threshold"] = new_s_thresh
-                                ws_supplies.update(values=[[up_dict_sth.get(h, "") for h in head_supplies]], range_name=f"A{cell_sth.row}")
+                                ws_sup.update(values=[[up_dict_sth.get(h, "") for h in head_supplies]], range_name=f"A{cell_sth.row}")
                                 st.cache_data.clear()
                                 st.success("تم الحفظ!"); time.sleep(1); st.rerun()
             else: st.info("لا توجد مستلزمات.")
@@ -671,7 +634,8 @@ else:
                             with c_s1: sub_s_e = st.form_submit_button("✏️ تحديث")
                             with c_s2: sub_s_d = st.form_submit_button("🗑️ حذف")
 
-                        cell_s = ws_supplies.find(hid_s_id, in_column=head_supplies.index("Supply_ID")+1) if "Supply_ID" in head_supplies else ws_supplies.find(hid_s_id, in_column=1)
+                        ws_sup = sh.worksheet("Supplies")
+                        cell_s = ws_sup.find(hid_s_id, in_column=head_supplies.index("Supply_ID")+1) if "Supply_ID" in head_supplies else ws_sup.find(hid_s_id, in_column=1)
 
                         if sub_s_e and cell_s:
                             up_s_dict = {
@@ -679,12 +643,12 @@ else:
                                 "Quantity": e_s_qty, "Cost_Price": e_s_cost, "Supplier_Name": str(c_s_row.get("Supplier_Name", "")),
                                 "Min_Threshold": c_s_row.get("Min_Threshold", 10), "Notes": e_s_notes
                             }
-                            ws_supplies.update(values=[[up_s_dict.get(h, str(c_s_row.get(h, ""))) for h in head_supplies]], range_name=f"A{cell_s.row}")
+                            ws_sup.update(values=[[up_s_dict.get(h, str(c_s_row.get(h, ""))) for h in head_supplies]], range_name=f"A{cell_s.row}")
                             st.cache_data.clear()
                             st.success("تم التحديث!"); time.sleep(1); st.rerun()
 
                         if sub_s_d and cell_s:
-                            ws_supplies.delete_row(cell_s.row)
+                            ws_sup.delete_row(cell_s.row)
                             st.cache_data.clear()
                             st.success("تم الحذف!"); time.sleep(1); st.rerun()
 
@@ -750,26 +714,29 @@ else:
                                 "Is_Sold": "نعم" if is_sold else "لا", "Sale_Date": str(p_date) if is_sold and p_date else "", 
                                 "Customer_Name": p_cust if is_sold else "", "Notes": p_notes
                             }
+                            ws_prod = sh.worksheet("Products")
                             ws_prod.update(values=[[p_dict.get(h, "") for h in c_head_p]], range_name=f"A{len(all_data['products'])+1}")
                             
                             if is_from_inv and used_qty:
+                                ws_inv = sh.get_worksheet(0)
+                                ws_sup = sh.worksheet("Supplies")
                                 for itm, q in used_qty.items():
                                     if itm.startswith("[خامة-"):
                                         i_id = itm.split("]")[0].replace("[خامة-", "").strip()
                                         id_idx = clean_headers.index("Item_ID")+1 if "Item_ID" in clean_headers else 1
                                         q_idx = clean_headers.index("Quantity")+1 if "Quantity" in clean_headers else 4
-                                        c_inv = worksheet.find(i_id, in_column=id_idx)
+                                        c_inv = ws_inv.find(i_id, in_column=id_idx)
                                         if c_inv:
-                                            curr = int(worksheet.cell(c_inv.row, q_idx).value or 0)
-                                            worksheet.update(values=[[max(0, curr - q)]], range_name=f"{get_col_letter(q_idx)}{c_inv.row}")
+                                            curr = int(ws_inv.cell(c_inv.row, q_idx).value or 0)
+                                            ws_inv.update(values=[[max(0, curr - q)]], range_name=f"{get_col_letter(q_idx)}{c_inv.row}")
                                     elif itm.startswith("[تغليف-"):
                                         s_id = itm.split("]")[0].replace("[تغليف-", "").strip()
                                         sid_idx = head_supplies.index("Supply_ID")+1 if "Supply_ID" in head_supplies else 1
                                         sq_idx = head_supplies.index("Quantity")+1 if "Quantity" in head_supplies else 4
-                                        c_sup = ws_supplies.find(s_id, in_column=sid_idx)
+                                        c_sup = ws_sup.find(s_id, in_column=sid_idx)
                                         if c_sup:
-                                            curr_s = int(ws_supplies.cell(c_sup.row, sq_idx).value or 0)
-                                            ws_supplies.update(values=[[max(0, curr_s - q)]], range_name=f"{get_col_letter(sq_idx)}{c_sup.row}")
+                                            curr_s = int(ws_sup.cell(c_sup.row, sq_idx).value or 0)
+                                            ws_sup.update(values=[[max(0, curr_s - q)]], range_name=f"{get_col_letter(sq_idx)}{c_sup.row}")
                             st.cache_data.clear()
                             st.success("تم الإضافة والخصم!"); time.sleep(1); st.rerun()
                         else: st.error("أدخل اسم المنتج!")
@@ -794,7 +761,7 @@ else:
                             e_p_qty = st.number_input("الكمية", min_value=0, step=1, value=int(c_row_p.get("Quantity", 0)))
                             e_p_loc = st.text_input("مكان العرض", value=str(c_row_p.get("Display_Location", "")))
                             e_p_cost = st.number_input("التكلفة", min_value=0.0, step=1.0, value=float(c_row_p.get("Cost_Price", 0.0)))
-                            e_p_sell = st.number_input("سعر البيع", min_value=0.0, step=1.0, value=float(c_row_p.get("Selling_Price", 0.0)))
+                            e_p_sell = st.number_input("سعر البيع", min_value=0.0, step=1.0, value=float(c_row_p.get("Selling_Progress", c_row_p.get("Selling_Price", 0.0))))
                             e_p_date = st.date_input("تاريخ البيع", value=saved_date)
                             e_p_cust = st.text_input("اسم العميل", value=str(c_row_p.get("Customer_Name", "")))
                             e_p_notes = st.text_area("ملاحظات", value=str(c_row_p.get("Notes", "")))
@@ -803,7 +770,8 @@ else:
                             with cp_b1: sub_p_e = st.form_submit_button("✏️ تحديث المنتج")
                             with cp_b2: sub_p_d = st.form_submit_button("🗑️ حذف المنتج")
 
-                        cell_p = ws_prod.find(hid_p_id, in_column=c_head_p.index("Product_ID")+1) if "Product_ID" in c_head_p else ws_prod.find(hid_p_id, in_column=1)
+                        ws_p = sh.worksheet("Products")
+                        cell_p = ws_p.find(hid_p_id, in_column=c_head_p.index("Product_ID")+1) if "Product_ID" in c_head_p else ws_p.find(hid_p_id, in_column=1)
 
                         if sub_p_e and cell_p:
                             profit_n = float(e_p_sell) - float(e_p_cost)
@@ -813,11 +781,11 @@ else:
                                 "Is_Sold": "نعم" if edit_p_sold else "لا", "Sale_Date": str(e_p_date) if edit_p_sold and e_p_date else "",
                                 "Customer_Name": e_p_cust if edit_p_sold else "", "Notes": e_p_notes
                             }
-                            ws_prod.update(values=[[up_p_dict.get(h, str(c_row_p.get(h, ""))) for h in c_head_p]], range_name=f"A{cell_p.row}")
+                            ws_p.update(values=[[up_p_dict.get(h, str(c_row_p.get(h, ""))) for h in c_head_p]], range_name=f"A{cell_p.row}")
                             st.cache_data.clear()
                             st.success("تم التحديث!"); time.sleep(1); st.rerun()
 
                         if sub_p_d and cell_p:
-                            ws_prod.delete_row(cell_p.row)
+                            ws_p.delete_row(cell_p.row)
                             st.cache_data.clear()
                             st.success("تم الحذف!"); time.sleep(1); st.rerun()
