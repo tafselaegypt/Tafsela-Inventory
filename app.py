@@ -44,6 +44,14 @@ def load_data_safe(raw_values):
             safe_data.append(row[:len(headers)])
     return pd.DataFrame(safe_data, columns=headers), headers
 
+def ensure_worksheet(sh, title, default_headers):
+    try:
+        return sh.worksheet(title)
+    except:
+        ws = sh.add_worksheet(title=title, rows=1000, cols=max(10, len(default_headers)+2))
+        ws.append_row(default_headers)
+        return ws
+
 # ==========================================
 # Page Config & Session State
 # ==========================================
@@ -53,6 +61,9 @@ if 'logged_in' not in st.session_state: st.session_state.logged_in = False
 if 'user_email' not in st.session_state: st.session_state.user_email = ""
 if 'is_admin' not in st.session_state: st.session_state.is_admin = False
 if 'app_mode' not in st.session_state: st.session_state.app_mode = "📦 المخزون الأساسي (الخامات)"
+
+# قائمة التنبيهات المخفية مؤقتاً أثناء الجلسة الحالية
+if 'dismissed_alerts' not in st.session_state: st.session_state.dismissed_alerts = []
 
 # CSS Styling
 st.markdown(
@@ -143,6 +154,7 @@ if not st.session_state.logged_in:
                                     st.session_state.logged_in = True
                                     st.session_state.user_email = l_email
                                     st.session_state.is_admin = (user_row['Role'] == 'Admin')
+                                    st.session_state.dismissed_alerts = [] # تصفير الإشعارات المخفية عند تسجيل الدخول الجديد
                                     st.success("Login successful! Redirecting...")
                                     time.sleep(1); st.rerun()
                                 else: st.warning("Account Pending. Please wait for Admin approval.")
@@ -198,18 +210,22 @@ else:
             st.session_state.logged_in = False
             st.session_state.user_email = ""
             st.session_state.is_admin = False
+            st.session_state.dismissed_alerts = []
             st.rerun()
 
-    # --- تجهيز الداتا من الذاكرة ---
+    # --- تجهيز الداتا من الذاكرة وضمان وجود عمود الحد الأدنى ---
     df, clean_headers = load_data_safe(all_data["inventory"])
     if not df.empty:
         if "Supplier_Name" not in clean_headers: clean_headers.append("Supplier_Name")
         if "Services_Cost" not in clean_headers: clean_headers.append("Services_Cost")
         if "Min_Threshold" not in clean_headers: clean_headers.append("Min_Threshold")
+        
         for col in ["Supplier_Name", "Services_Cost"]:
             if col not in df.columns: df[col] = ""
+            
         if "Min_Threshold" not in df.columns: df["Min_Threshold"] = 5
         df["Min_Threshold"] = pd.to_numeric(df["Min_Threshold"], errors='coerce').fillna(5)
+        
         for col in ["Item_ID", "Quantity", "Purchase_Price", "Selling_Price", "Shipping_Cost", "Services_Cost"]: 
             if col in df.columns: df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
     else:
@@ -218,7 +234,10 @@ else:
 
     df_supplies, head_supplies = load_data_safe(all_data["supplies"])
     if not df_supplies.empty:
-        for col in ["Supply_ID", "Quantity", "Cost_Price", "Min_Threshold"]:
+        if "Min_Threshold" not in head_supplies: head_supplies.append("Min_Threshold")
+        if "Min_Threshold" not in df_supplies.columns: df_supplies["Min_Threshold"] = 10
+        df_supplies["Min_Threshold"] = pd.to_numeric(df_supplies["Min_Threshold"], errors='coerce').fillna(10)
+        for col in ["Supply_ID", "Quantity", "Cost_Price"]:
             if col in df_supplies.columns: df_supplies[col] = pd.to_numeric(df_supplies[col], errors='coerce').fillna(0)
     else:
         head_supplies = ["Supply_ID", "Supply_Name", "Image_URL", "Quantity", "Cost_Price", "Supplier_Name", "Min_Threshold", "Notes"]
@@ -251,16 +270,17 @@ else:
 
             if not display_df.empty and "Item_Name" in display_df.columns:
                 html_table = '<div style="width: 100%; overflow-x: auto;"><table style="width:100%; min-width: 1200px; text-align:center; border-collapse: collapse; font-size: 16px; margin-top: 15px;">'
-                headers = ["ID", "Name", "Image", "Qty", "Cost", "Sell Price", "Supplier", "Services/Acc", "Total Cost"]
+                headers = ["ID", "Name", "Image", "Qty", "Cost", "Sell Price", "Supplier", "Min Alert", "Total Cost"]
                 html_table += "<tr>" + "".join([f'<th style="color: #5ce1d6; border-bottom: 2px solid #5ce1d6; padding: 12px;">{h}</th>' for h in headers]) + "</tr>"
 
                 for _, row in display_df.iterrows():
                     html_table += "<tr>"
                     p_price, s_cost = row.get("Purchase_Price", 0), row.get("Services_Cost", 0)
+                    min_t = row.get("Min_Threshold", 5)
                     cols_data = [
                         row.get("Item_ID", ""), row.get("Item_Name", ""), row.get("Image_URL", ""),
                         row.get("Quantity", ""), p_price, row.get("Selling_Price", ""),
-                        row.get("Supplier_Name", ""), s_cost, f'<span style="color:#ffcc00; font-weight:bold;">{float(p_price) + float(s_cost)}</span>'
+                        row.get("Supplier_Name", ""), min_t, f'<span style="color:#ffcc00; font-weight:bold;">{float(p_price) + float(s_cost)}</span>'
                     ]
                     for i, val in enumerate(cols_data):
                         if i == 2 and str(val).startswith("data:image"):
@@ -289,6 +309,7 @@ else:
                     p_price = st.number_input("سعر الشراء الأساسي", min_value=0.0, step=1.0)
                     serv_cost = st.number_input("تكلفة خدمات إضافية", min_value=0.0, step=1.0)
                     s_price = st.number_input("سعر البيع المتوقع", min_value=0.0, step=1.0)
+                    m_thresh = st.number_input("الحد الأدنى للتنبيه", min_value=0, step=1, value=5)
                     colors, notes = st.text_input("الألوان"), st.text_area("ملاحظات")
                     if st.form_submit_button("إضافة للمخزن"):
                         if i_name:
@@ -296,7 +317,7 @@ else:
                                 "Item_ID": len(df) + 1 if not df.empty else 1, "Item_Name": i_name, "Image_URL": get_image_base64(i_img),
                                 "Quantity": i_qty, "Purchase_Price": p_price, "Selling_Price": s_price,
                                 "Supplier_Name": new_sup if sup_sel == "مورد جديد..." else sup_sel, 
-                                "Services_Cost": serv_cost, "Min_Threshold": 5, "Colors": colors, "Notes": notes
+                                "Services_Cost": serv_cost, "Min_Threshold": m_thresh, "Colors": colors, "Notes": notes
                             }
                             sh.get_worksheet(0).update(values=[[new_row_dict.get(h, "") for h in clean_headers]], range_name=f"A{len(all_data['inventory']) + 1}")
                             st.cache_data.clear()
@@ -320,6 +341,7 @@ else:
                             e_pprice = st.number_input("سعر الشراء", min_value=0.0, step=1.0, value=float(c_row.get("Purchase_Price", 0.0)))
                             e_scost = st.number_input("خدمات", min_value=0.0, step=1.0, value=float(c_row.get("Services_Cost", 0.0)))
                             e_sprice = st.number_input("سعر البيع", min_value=0.0, step=1.0, value=float(c_row.get("Selling_Price", 0.0)))
+                            e_m_thresh = st.number_input("الحد الأدنى للتنبيه", min_value=0, step=1, value=int(c_row.get("Min_Threshold", 5)))
                             e_colors, e_notes = st.text_input("الألوان", value=str(c_row.get("Colors", ""))), st.text_area("ملاحظات", value=str(c_row.get("Notes", "")))
                             
                             c_b1, c_b2 = st.columns(2)
@@ -334,7 +356,7 @@ else:
                                 "Item_ID": hid_id, "Item_Name": e_name, "Image_URL": get_image_base64(e_img) if e_img else c_row.get("Image_URL", ""), 
                                 "Quantity": e_qty, "Purchase_Price": e_pprice, "Selling_Price": e_sprice, 
                                 "Supplier_Name": e_new_sup if e_sup_sel == "مورد جديد..." else e_sup_sel,
-                                "Services_Cost": e_scost, "Min_Threshold": c_row.get("Min_Threshold", 5), "Colors": e_colors, "Notes": e_notes
+                                "Services_Cost": e_scost, "Min_Threshold": e_m_thresh, "Colors": e_colors, "Notes": e_notes
                             }
                             ws_inv.update(values=[[up_dict.get(h, str(c_row.get(h, ""))) for h in clean_headers]], range_name=f"A{cell.row}")
                             st.cache_data.clear()
@@ -373,20 +395,39 @@ else:
             
         st.markdown("<h3>⚠️ تنبيهات نواقص المخزن</h3>", unsafe_allow_html=True)
         warnings_count = 0
+        
+        # فحص نواقص الخامات الأساسية مع إمكانية إغلاق الإشعار (Dismiss)
         if not df.empty:
             low_stock = df[df["Quantity"] <= df["Min_Threshold"]]
             for _, row in low_stock.iterrows():
-                warnings_count += 1
-                st.error(f"🚨 خامة أساسية: **{row['Item_Name']}** - متبقي منها **{row['Quantity']}** قطع فقط! (الحد الأدنى: {int(row.get('Min_Threshold', 5))})")
+                alert_key = f"inv_{row.get('Item_ID', _)}"
+                if alert_key not in st.session_state.dismissed_alerts:
+                    warnings_count += 1
+                    col_alert, col_btn = st.columns([5, 1])
+                    with col_alert:
+                        st.error(f"🚨 خامة أساسية: **{row['Item_Name']}** - متبقي منها **{row['Quantity']}** قطع فقط! (الحد الأدنى: {int(row.get('Min_Threshold', 5))})")
+                    with col_btn:
+                        if st.button("❌ إغلاق", key=f"dismiss_{alert_key}"):
+                            st.session_state.dismissed_alerts.append(alert_key)
+                            st.rerun()
         
+        # فحص نواقص المستلزمات مع إمكانية إغلاق الإشعار (Dismiss)
         if not df_supplies.empty:
             low_sup = df_supplies[df_supplies["Quantity"] <= df_supplies["Min_Threshold"]]
             for _, row in low_sup.iterrows():
-                warnings_count += 1
-                st.warning(f"⚠️ مستلزم إضافي: **{row['Supply_Name']}** - متبقي منها **{row['Quantity']}** فقط! (الحد الأدنى: {int(row.get('Min_Threshold', 10))})")
+                alert_key = f"sup_{row.get('Supply_ID', _)}"
+                if alert_key not in st.session_state.dismissed_alerts:
+                    warnings_count += 1
+                    col_alert, col_btn = st.columns([5, 1])
+                    with col_alert:
+                        st.warning(f"⚠️ مستلزم إضافي: **{row['Supply_Name']}** - متبقي منها **{row['Quantity']}** فقط! (الحد الأدنى: {int(row.get('Min_Threshold', 10))})")
+                    with col_btn:
+                        if st.button("❌ إغلاق", key=f"dismiss_{alert_key}"):
+                            st.session_state.dismissed_alerts.append(alert_key)
+                            st.rerun()
 
         if warnings_count == 0:
-            st.success("✅ المخزن ممتلئ (خامات ومستلزمات) ولا توجد نواقص خطيرة حالياً.")
+            st.success("✅ المخزن ممتلئ (خامات ومستلزمات) ولا توجد تنبيهات نشطة حالياً.")
 
     # ------------------------------------------
     # أرشيف فواتير المشتريات (Invoices)
@@ -495,10 +536,9 @@ else:
                     for _, row in pending_users.iterrows():
                         st.write(f"📧 Email: **{row.get('Email', '')}**")
                         if st.button(f"✅ Approve", key=f"app_{row.get('Email', '')}"):
-                            ws_u = sh.worksheet("Users")
-                            cell = ws_u.find(row.get('Email', ''), in_column=1)
+                            cell = ws_users.find(row.get('Email', ''), in_column=1)
                             if cell:
-                                ws_u.update_cell(cell.row, 3, "Approved") 
+                                ws_users.update_cell(cell.row, 3, "Approved") 
                                 st.cache_data.clear()
                                 st.success(f"Approved {row.get('Email', '')} successfully!")
                                 time.sleep(1); st.rerun()
@@ -526,7 +566,8 @@ else:
                                 up_dict_th["Min_Threshold"] = new_thresh
                                 ws_inv.update(values=[[up_dict_th.get(h, "") for h in clean_headers]], range_name=f"A{cell_th.row}")
                                 st.cache_data.clear()
-                                st.success("تم الحفظ!"); time.sleep(1); st.rerun()
+                                st.success("تم الحفظ وتحديث التنبيهات!")
+                                time.sleep(1); st.rerun()
             else: st.info("لا توجد خامات.")
 
             st.markdown("<hr>### ⚠️ تحديد الحد الأدنى للمستلزمات والإضافات", unsafe_allow_html=True)
@@ -546,7 +587,8 @@ else:
                                 up_dict_sth["Min_Threshold"] = new_s_thresh
                                 ws_sup.update(values=[[up_dict_sth.get(h, "") for h in head_supplies]], range_name=f"A{cell_sth.row}")
                                 st.cache_data.clear()
-                                st.success("تم الحفظ!"); time.sleep(1); st.rerun()
+                                st.success("تم الحفظ وتحديث التنبيهات!")
+                                time.sleep(1); st.rerun()
             else: st.info("لا توجد مستلزمات.")
 
     # ------------------------------------------
@@ -568,14 +610,15 @@ else:
 
             if not disp_sup.empty and "Supply_Name" in disp_sup.columns:
                 html_sup = '<div style="width: 100%; overflow-x: auto;"><table style="width:100%; min-width: 1000px; text-align:center; border-collapse: collapse; font-size: 16px; margin-top: 15px;">'
-                headers = ["ID", "Name", "Image", "Qty", "Cost", "Supplier", "Notes"]
+                headers = ["ID", "Name", "Image", "Qty", "Cost", "Supplier", "Min Alert", "Notes"]
                 html_sup += "<tr>" + "".join([f'<th style="color: #5ce1d6; border-bottom: 2px solid #5ce1d6; padding: 12px;">{h}</th>' for h in headers]) + "</tr>"
 
                 for _, row in disp_sup.iterrows():
                     html_sup += "<tr>"
                     cols_data = [
                         row.get("Supply_ID", ""), row.get("Supply_Name", ""), row.get("Image_URL", ""),
-                        row.get("Quantity", ""), row.get("Cost_Price", ""), row.get("Supplier_Name", ""), row.get("Notes", "")
+                        row.get("Quantity", ""), row.get("Cost_Price", ""), row.get("Supplier_Name", ""), 
+                        row.get("Min_Threshold", 10), row.get("Notes", "")
                     ]
                     for i, val in enumerate(cols_data):
                         if i == 2 and str(val).startswith("data:image"):
@@ -600,6 +643,7 @@ else:
                     s_img = st.file_uploader("صورة", type=["jpg", "png"], key="s_img")
                     s_qty = st.number_input("الكمية", min_value=0, step=1)
                     s_cost = st.number_input("التكلفة", min_value=0.0, step=1.0)
+                    s_thresh = st.number_input("الحد الأدنى للتنبيه", min_value=0, step=1, value=10)
                     s_vend = st.selectbox("المورد", sup_vendors)
                     s_new_vend = st.text_input("مورد جديد") if s_vend == "مورد جديد..." else ""
                     s_notes = st.text_area("ملاحظات")
@@ -609,8 +653,9 @@ else:
                                 "Supply_ID": len(df_supplies) + 1 if not df_supplies.empty else 1, "Supply_Name": s_name, 
                                 "Image_URL": get_image_base64(s_img) if s_img else "", "Quantity": s_qty, "Cost_Price": s_cost, 
                                 "Supplier_Name": s_new_vend if s_vend == "مورد جديد..." else s_vend, 
-                                "Min_Threshold": 10, "Notes": s_notes
+                                "Min_Threshold": s_thresh, "Notes": s_notes
                             }
+                            ws_supplies = sh.worksheet("Supplies")
                             ws_supplies.update(values=[[new_s_dict.get(h, "") for h in head_supplies]], range_name=f"A{len(all_data['supplies']) + 1}")
                             st.cache_data.clear()
                             st.success("تم الإضافة!"); time.sleep(1); st.rerun()
@@ -628,6 +673,7 @@ else:
                             e_s_img = st.file_uploader("صورة جديدة", type=["jpg", "png"], key="es_img")
                             e_s_qty = st.number_input("الكمية", min_value=0, step=1, value=int(c_s_row.get("Quantity", 0)))
                             e_s_cost = st.number_input("التكلفة", min_value=0.0, step=1.0, value=float(c_s_row.get("Cost_Price", 0.0)))
+                            e_s_thresh = st.number_input("الحد الأدنى للتنبيه", min_value=0, step=1, value=int(c_s_row.get("Min_Threshold", 10)))
                             e_s_notes = st.text_area("ملاحظات", value=str(c_s_row.get("Notes", "")))
                             
                             c_s1, c_s2 = st.columns(2)
@@ -641,7 +687,7 @@ else:
                             up_s_dict = {
                                 "Supply_ID": hid_s_id, "Supply_Name": e_s_name, "Image_URL": get_image_base64(e_s_img) if e_s_img else str(c_s_row.get("Image_URL", "")), 
                                 "Quantity": e_s_qty, "Cost_Price": e_s_cost, "Supplier_Name": str(c_s_row.get("Supplier_Name", "")),
-                                "Min_Threshold": c_s_row.get("Min_Threshold", 10), "Notes": e_s_notes
+                                "Min_Threshold": e_s_thresh, "Notes": e_s_notes
                             }
                             ws_sup.update(values=[[up_s_dict.get(h, str(c_s_row.get(h, ""))) for h in head_supplies]], range_name=f"A{cell_s.row}")
                             st.cache_data.clear()
@@ -761,7 +807,7 @@ else:
                             e_p_qty = st.number_input("الكمية", min_value=0, step=1, value=int(c_row_p.get("Quantity", 0)))
                             e_p_loc = st.text_input("مكان العرض", value=str(c_row_p.get("Display_Location", "")))
                             e_p_cost = st.number_input("التكلفة", min_value=0.0, step=1.0, value=float(c_row_p.get("Cost_Price", 0.0)))
-                            e_p_sell = st.number_input("سعر البيع", min_value=0.0, step=1.0, value=float(c_row_p.get("Selling_Progress", c_row_p.get("Selling_Price", 0.0))))
+                            e_p_sell = st.number_input("سعر البيع", min_value=0.0, step=1.0, value=float(c_row_p.get("Selling_Price", 0.0)))
                             e_p_date = st.date_input("تاريخ البيع", value=saved_date)
                             e_p_cust = st.text_input("اسم العميل", value=str(c_row_p.get("Customer_Name", "")))
                             e_p_notes = st.text_area("ملاحظات", value=str(c_row_p.get("Notes", "")))
@@ -781,9 +827,9 @@ else:
                                 "Is_Sold": "نعم" if edit_p_sold else "لا", "Sale_Date": str(e_p_date) if edit_p_sold and e_p_date else "",
                                 "Customer_Name": e_p_cust if edit_p_sold else "", "Notes": e_p_notes
                             }
-                            ws_p.update(values=[[up_p_dict.get(h, str(c_row_p.get(h, ""))) for h in c_head_p]], range_name=f"A{cell_p.row}")
-                            st.cache_data.clear()
-                            st.success("تم التحديث!"); time.sleep(1); st.rerun()
+                        ws_p.update(values=[[up_p_dict.get(h, str(c_row_p.get(h, ""))) for h in c_head_p]], range_name=f"A{cell_p.row}")
+                        st.cache_data.clear()
+                        st.success("تم التحديث!"); time.sleep(1); st.rerun()
 
                         if sub_p_d and cell_p:
                             ws_p.delete_row(cell_p.row)
