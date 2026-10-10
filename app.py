@@ -11,7 +11,7 @@ import pandas as pd
 import streamlit as st
 
 # ==========================================
-# Helper Functions
+# Helper Functions (الدوال المساعدة)
 # ==========================================
 def get_col_letter(col_idx):
     result = ""
@@ -32,6 +32,19 @@ def get_image_base64(uploaded_file):
         image.save(buffered, format="JPEG", quality=70)
         return f"data:image/jpeg;base64,{base64.b64encode(buffered.getvalue()).decode()}"
     return ""
+
+# الدالة الذكية الجديدة لحماية الجداول من أي أخطاء في العواميد
+def load_data_safe(raw_values):
+    if not raw_values or len(raw_values) == 0:
+        return pd.DataFrame(), []
+    headers = [str(h).strip() if str(h).strip() != "" else f"Unnamed_{i}" for i, h in enumerate(raw_values[0])]
+    safe_data = []
+    for row in raw_values[1:]:
+        if len(row) < len(headers):
+            safe_data.append(row + [""] * (len(headers) - len(row)))
+        else:
+            safe_data.append(row[:len(headers)])
+    return pd.DataFrame(safe_data, columns=headers), headers
 
 # ==========================================
 # Page Config & Session State
@@ -96,7 +109,7 @@ except Exception as e:
     st.stop()
 
 # ==========================================
-# Authentication (Login / Register) - English UI
+# Authentication (Login / Register) 
 # ==========================================
 if not st.session_state.logged_in:
     col1, col2, col3 = st.columns([1, 1.5, 1])
@@ -113,9 +126,9 @@ if not st.session_state.logged_in:
                 l_pass = st.text_input("Password", type="password")
                 if st.form_submit_button("Login"):
                     if l_email and l_pass:
-                        users_data = ws_users.get_all_records()
-                        df_users = pd.DataFrame(users_data)
-                        if not df_users.empty and l_email in df_users['Email'].values:
+                        raw_users = ws_users.get_all_values()
+                        df_users, _ = load_data_safe(raw_users)
+                        if not df_users.empty and 'Email' in df_users.columns and l_email in df_users['Email'].values:
                             user_row = df_users[df_users['Email'] == l_email].iloc[0]
                             if str(user_row['Password']) == hash_password(l_pass):
                                 if user_row['Status'] == 'Approved':
@@ -140,8 +153,9 @@ if not st.session_state.logged_in:
                 r_pass2 = st.text_input("Confirm Password", type="password")
                 if st.form_submit_button("Register"):
                     if r_email and r_pass and r_pass == r_pass2:
-                        users_data = ws_users.get_all_values()
-                        existing_emails = [row[0] for row in users_data[1:]] if len(users_data) > 1 else []
+                        raw_users = ws_users.get_all_values()
+                        df_users, _ = load_data_safe(raw_users)
+                        existing_emails = df_users['Email'].tolist() if not df_users.empty and 'Email' in df_users.columns else []
                         
                         if r_email in existing_emails:
                             st.error("Email already registered!")
@@ -180,16 +194,18 @@ else:
             st.session_state.is_admin = False
             st.rerun()
 
-    # تحميل داتا المخزون الأساسية
+    # تحميل داتا المخزون بطريقة آمنة باستخدام الدالة الجديدة
     worksheet = sh.sheet1
     raw_data = worksheet.get_all_values()
-    if len(raw_data) > 0:
-        clean_headers = [str(h).strip() if str(h).strip() != "" else f"Unnamed_{i}" for i, h in enumerate(raw_data[0])]
+    df, clean_headers = load_data_safe(raw_data)
+    
+    if not df.empty:
         if "Supplier_Name" not in clean_headers: clean_headers.append("Supplier_Name")
         if "Services_Cost" not in clean_headers: clean_headers.append("Services_Cost")
-        df = pd.DataFrame(raw_data[1:], columns=clean_headers[:len(raw_data[1][0])] if len(raw_data)>1 else clean_headers)
+        
         for col in ["Supplier_Name", "Services_Cost"]:
             if col not in df.columns: df[col] = ""
+            
         for col in ["Item_ID", "Quantity", "Purchase_Price", "Selling_Price", "Shipping_Cost", "Services_Cost"]: 
             if col in df.columns: df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
     else:
@@ -223,19 +239,20 @@ else:
         st.markdown("<h1>⚙️ Admin Panel (User Management)</h1><hr>", unsafe_allow_html=True)
         
         users_raw = ws_users.get_all_values()
-        if len(users_raw) > 1:
-            df_u = pd.DataFrame(users_raw[1:], columns=users_raw[0])
+        df_u, _ = load_data_safe(users_raw)
+        
+        if not df_u.empty and 'Status' in df_u.columns:
             pending_users = df_u[df_u['Status'] == 'Pending']
             
             if not pending_users.empty:
                 st.warning(f"There are ({len(pending_users)}) pending registration requests.")
                 for _, row in pending_users.iterrows():
-                    st.write(f"📧 Email: **{row['Email']}**")
-                    if st.button(f"✅ Approve", key=f"app_{row['Email']}"):
-                        cell = ws_users.find(row['Email'], in_column=1)
+                    st.write(f"📧 Email: **{row.get('Email', '')}**")
+                    if st.button(f"✅ Approve", key=f"app_{row.get('Email', '')}"):
+                        cell = ws_users.find(row.get('Email', ''), in_column=1)
                         if cell:
                             ws_users.update_cell(cell.row, 3, "Approved") 
-                            st.success(f"Approved {row['Email']} successfully!")
+                            st.success(f"Approved {row.get('Email', '')} successfully!")
                             time.sleep(1); st.rerun()
                     st.markdown("<hr>", unsafe_allow_html=True)
             else:
@@ -391,12 +408,11 @@ else:
             time.sleep(1); st.rerun()
 
         raw_p = ws_prod.get_all_values()
-        if len(raw_p) > 0:
-            c_head_p = [str(h).strip() if str(h).strip() != "" else f"Unnamed_{i}" for i, h in enumerate(raw_p[0])]
-            df_p = pd.DataFrame(raw_p[1:], columns=c_head_p)
+        df_p, c_head_p = load_data_safe(raw_p)
+        
+        if not df_p.empty:
             for c in ["Product_ID", "Quantity", "Cost_Price", "Selling_Price", "Profit"]: 
                 if c in df_p.columns: df_p[c] = pd.to_numeric(df_p[c], errors='coerce').fillna(0)
-        else: df_p = pd.DataFrame()
 
         cp1, cp2 = st.columns([3, 1])
         with cp1:
@@ -453,8 +469,9 @@ else:
         try: ws_prod = sh.worksheet("Products"); raw_p = ws_prod.get_all_values()
         except: raw_p = []
 
-        if len(raw_p) > 1:
-            df_p = pd.DataFrame(raw_p[1:], columns=[str(h).strip() for h in raw_p[0]])
+        df_p, _ = load_data_safe(raw_p)
+
+        if not df_p.empty:
             df_p["Profit"] = pd.to_numeric(df_p["Profit"], errors='coerce').fillna(0)
             df_p["Selling_Price"] = pd.to_numeric(df_p["Selling_Price"], errors='coerce').fillna(0)
             
