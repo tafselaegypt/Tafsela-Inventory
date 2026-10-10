@@ -6,12 +6,19 @@ import hashlib
 from PIL import Image
 from google.oauth2.service_account import Credentials
 import gspread
-from gspread.exceptions import WorksheetNotFound
 import pandas as pd
 import streamlit as st
+from streamlit_cookies_manager import EncryptedCookieManager
 
 # ==========================================
-# Helper Functions (الدوال المساعدة)
+# Cookie Manager Setup (تثبيت إدارة الكوكيز)
+# ==========================================
+cookies = EncryptedCookieManager(prefix="tafsela_app_", password="tafsela_secure_secret_key_2026")
+if not cookies.ready():
+    st.stop()
+
+# ==========================================
+# Helper Functions
 # ==========================================
 def get_col_letter(col_idx):
     result = ""
@@ -45,26 +52,32 @@ def load_data_safe(raw_values):
             safe_data.append(row[:len(headers)])
     return pd.DataFrame(safe_data, columns=headers), headers
 
-# دالة ذكية لإنشاء الشيتات لو مش موجودة
 def ensure_worksheet(sh, title, default_headers):
     try:
         return sh.worksheet(title)
-    except WorksheetNotFound:
+    except:
         ws = sh.add_worksheet(title=title, rows=1000, cols=max(10, len(default_headers)+2))
         ws.append_row(default_headers)
         return ws
 
 # ==========================================
-# Page Config & Session State
+# Page Config & Session State (ربط الكوكيز)
 # ==========================================
 st.set_page_config(page_title="Tafsela ERP System", layout="wide", initial_sidebar_state="expanded")
 
-if 'logged_in' not in st.session_state: st.session_state.logged_in = False
+if 'logged_in' not in st.session_state:
+    if cookies.get("logged_in") == "true":
+        st.session_state.logged_in = True
+        st.session_state.user_email = cookies.get("user_email", "")
+        st.session_state.is_admin = (cookies.get("is_admin", "false") == "true")
+    else:
+        st.session_state.logged_in = False
+
 if 'user_email' not in st.session_state: st.session_state.user_email = ""
 if 'is_admin' not in st.session_state: st.session_state.is_admin = False
-if 'app_mode' not in st.session_state: st.session_state.app_mode = "📊 لوحة الإحصائيات (Dashboard)"
+if 'app_mode' not in st.session_state: st.session_state.app_mode = "📦 المخزون الأساسي (الخامات)"
 
-# CSS
+# CSS Styling
 st.markdown(
     """
 <style>
@@ -86,7 +99,8 @@ st.markdown(
 # ==========================================
 # Database Connection
 # ==========================================
-try:
+@st.cache_resource(show_spinner=False)
+def init_connection():
     raw_key = st.secrets["private_key"]
     clean_key = raw_key.replace("\\n", "\n").strip()
     secret_dict = {
@@ -97,33 +111,38 @@ try:
     }
     credentials = Credentials.from_service_account_info(secret_dict, scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"])
     gc = gspread.authorize(credentials)
-    sh = gc.open("My_Inventory")
+    return gc.open("My_Inventory")
 
-    # تعريف الشيتات كلها هنا مرة واحدة
+try:
+    sh = init_connection()
     ws_users = ensure_worksheet(sh, "Users", ["Email", "Password", "Status", "Role"])
-    worksheet = sh.sheet1 # المخزون الأساسي
+    worksheet = sh.sheet1 
     ws_supplies = ensure_worksheet(sh, "Supplies", ["Supply_ID", "Supply_Name", "Image_URL", "Quantity", "Cost_Price", "Supplier_Name", "Min_Threshold", "Notes"])
     ws_invoices = ensure_worksheet(sh, "Invoices", ["Invoice_ID", "Date", "Supplier_Location", "Total_Amount", "Image_URL", "Notes"])
     ws_prod = ensure_worksheet(sh, "Products", ["Product_ID", "Product_Name", "Image_URL", "Quantity", "Display_Location", "Cost_Price", "Selling_Price", "Profit", "Is_Sold", "Sale_Date", "Customer_Name", "Notes"])
-
 except Exception as e:
     st.error(f"Database Connection Error: {e}")
     st.stop()
 
-# ==========================================
-# Caching System (النظام الذكي لمنع ضغط السيرفر)
-# ==========================================
 @st.cache_data(ttl=60, show_spinner=False)
 def fetch_all_data():
+    worksheets = {ws.title: ws for ws in sh.worksheets()}
+    def get_or_create(title, headers):
+        if title in worksheets:
+            return worksheets[title].get_all_values()
+        else:
+            new_ws = sh.add_worksheet(title=title, rows=1000, cols=max(10, len(headers)+2))
+            new_ws.append_row(headers)
+            return new_ws.get_all_values()
+
     return {
-        "users": ws_users.get_all_values(),
-        "inventory": worksheet.get_all_values(),
-        "supplies": ws_supplies.get_all_values(),
-        "invoices": ws_invoices.get_all_values(),
-        "products": ws_prod.get_all_values()
+        "users": get_or_create("Users", ["Email", "Password", "Status", "Role"]),
+        "inventory": sh.get_worksheet(0).get_all_values(),
+        "supplies": get_or_create("Supplies", ["Supply_ID", "Supply_Name", "Image_URL", "Quantity", "Cost_Price", "Supplier_Name", "Min_Threshold", "Notes"]),
+        "invoices": get_or_create("Invoices", ["Invoice_ID", "Date", "Supplier_Location", "Total_Amount", "Image_URL", "Notes"]),
+        "products": get_or_create("Products", ["Product_ID", "Product_Name", "Image_URL", "Quantity", "Display_Location", "Cost_Price", "Selling_Price", "Profit", "Is_Sold", "Sale_Date", "Customer_Name", "Notes"])
     }
 
-# جلب البيانات من الذاكرة المؤقتة
 all_data = fetch_all_data()
 
 # ==========================================
@@ -152,6 +171,13 @@ if not st.session_state.logged_in:
                                     st.session_state.logged_in = True
                                     st.session_state.user_email = l_email
                                     st.session_state.is_admin = (user_row['Role'] == 'Admin')
+                                    
+                                    # حفظ البيانات في الكوكيز
+                                    cookies["logged_in"] = "true"
+                                    cookies["user_email"] = l_email
+                                    cookies["is_admin"] = "true" if user_row['Role'] == 'Admin' else "false"
+                                    cookies.save()
+                                    
                                     st.success("Login successful! Redirecting...")
                                     time.sleep(1); st.rerun()
                                 else: st.warning("Account Pending. Please wait for Admin approval.")
@@ -177,8 +203,8 @@ if not st.session_state.logged_in:
                             else:
                                 status, role = "Pending", "User"
                                 st.success("Registration successful. Waiting for Admin approval.")
-                            ws_users.append_row([r_email, hash_password(r_pass), status, role])
-                            st.cache_data.clear() # تفريغ الكاش بعد الإضافة
+                            sh.worksheet("Users").append_row([r_email, hash_password(r_pass), status, role])
+                            st.cache_data.clear()
                             time.sleep(2); st.rerun()
                     else: st.error("Please fill all fields correctly and ensure passwords match.")
 
@@ -192,8 +218,8 @@ else:
         st.markdown(f"<p style='text-align: center; font-size:14px; color:#aaa;'>Welcome: {st.session_state.user_email}</p><hr>", unsafe_allow_html=True)
         
         menu_options = [
-            "📊 لوحة الإحصائيات (Dashboard)", 
             "📦 المخزون الأساسي (الخامات)", 
+            "📊 لوحة الإحصائيات (Dashboard)", 
             "🛒 مستلزمات وإضافات (تغليف)", 
             "🛍️ المنتجات والمبيعات",
             "🧾 أرشيف فواتير المشتريات" 
@@ -207,9 +233,16 @@ else:
             st.session_state.logged_in = False
             st.session_state.user_email = ""
             st.session_state.is_admin = False
+            
+            # مسح الكوكيز عند تسجيل الخروج
+            cookies["logged_in"] = "false"
+            cookies["user_email"] = ""
+            cookies["is_admin"] = "false"
+            cookies.save()
+            
             st.rerun()
 
-    # --- تجهيز الداتا من الذاكرة المؤقتة لجميع الصفحات ---
+    # --- تجهيز الداتا من الذاكرة المؤقتة ---
     df, clean_headers = load_data_safe(all_data["inventory"])
     if not df.empty:
         if "Supplier_Name" not in clean_headers: clean_headers.append("Supplier_Name")
@@ -241,11 +274,122 @@ else:
         head_invoices = ["Invoice_ID", "Date", "Supplier_Location", "Total_Amount", "Image_URL", "Notes"]
         df_invoices = pd.DataFrame(columns=head_invoices)
 
+    # ------------------------------------------
+    # إدارة المخزون (الخامات الأساسية)
+    # ------------------------------------------
+    if st.session_state.app_mode == "📦 المخزون الأساسي (الخامات)":
+        st.markdown("<h1>📦 الخامات والمخزون الأساسي</h1><hr>", unsafe_allow_html=True)
+        col1, col2 = st.columns([3, 1])
+
+        with col1:
+            h_col, s_col, b_col = st.columns([2, 1.5, 0.5], vertical_alignment="center")
+            with h_col: st.markdown('<div style="color: white; font-size: 24px; font-weight: bold;">📋 الخامات المتاحة</div>', unsafe_allow_html=True)
+            with s_col: search_term = st.text_input("Search", label_visibility="collapsed", placeholder="🔍 ابحث...", key="inv_s")
+            with b_col: st.button("Search", use_container_width=True, key="inv_b")
+
+            display_df = df.copy()
+            if not display_df.empty and "Item_Name" in display_df.columns and search_term:
+                display_df = display_df[display_df["Item_Name"].astype(str).str.contains(search_term, case=False, na=False)]
+
+            if not display_df.empty and "Item_Name" in display_df.columns:
+                html_table = '<div style="width: 100%; overflow-x: auto;"><table style="width:100%; min-width: 1200px; text-align:center; border-collapse: collapse; font-size: 16px; margin-top: 15px;">'
+                headers = ["ID", "Name", "Image", "Qty", "Cost", "Sell Price", "Supplier", "Services/Acc", "Total Cost"]
+                html_table += "<tr>" + "".join([f'<th style="color: #5ce1d6; border-bottom: 2px solid #5ce1d6; padding: 12px;">{h}</th>' for h in headers]) + "</tr>"
+
+                for _, row in display_df.iterrows():
+                    html_table += "<tr>"
+                    p_price, s_cost = row.get("Purchase_Price", 0), row.get("Services_Cost", 0)
+                    cols_data = [
+                        row.get("Item_ID", ""), row.get("Item_Name", ""), row.get("Image_URL", ""),
+                        row.get("Quantity", ""), p_price, row.get("Selling_Price", ""),
+                        row.get("Supplier_Name", ""), s_cost, f'<span style="color:#ffcc00; font-weight:bold;">{float(p_price) + float(s_cost)}</span>'
+                    ]
+                    for i, val in enumerate(cols_data):
+                        if i == 2 and str(val).startswith("data:image"):
+                            html_table += f'<td style="border-bottom: 1px solid #333; padding: 12px;"><img src="{val}" width="50" style="border-radius: 5px;"></td>'
+                        else: html_table += f'<td style="color: white; border-bottom: 1px solid #333; padding: 12px;">{val}</td>'
+                    html_table += "</tr>"
+                html_table += "</table></div>"
+                st.markdown(html_table, unsafe_allow_html=True)
+            else: st.info("No items found.")
+
+        with col2:
+            tab_add, tab_edit = st.tabs(["➕ Add Item", "✏️ Edit Item"])
+            base_suppliers = ["محمود بلاستيك", "مكتبة الفنون"]
+            if not df.empty and "Supplier_Name" in df.columns:
+                for s in df["Supplier_Name"].dropna().astype(str).unique():
+                    if s and s.strip() != "" and s not in base_suppliers and s != "مورد جديد...": base_suppliers.append(s)
+            base_suppliers.append("مورد جديد...")
+
+            with tab_add:
+                with st.form("add_inv_form", clear_on_submit=True):
+                    i_name = st.text_input("اسم الخامة")
+                    i_img = st.file_uploader("صورة", type=["jpg", "png"])
+                    i_qty = st.number_input("الكمية", min_value=0, step=1)
+                    sup_sel = st.selectbox("المورد (Supplier)", base_suppliers)
+                    new_sup = st.text_input("اسم المورد الجديد") if sup_sel == "مورد جديد..." else ""
+                    p_price = st.number_input("سعر الشراء الأساسي", min_value=0.0, step=1.0)
+                    serv_cost = st.number_input("تكلفة خدمات إضافية", min_value=0.0, step=1.0)
+                    s_price = st.number_input("سعر البيع المتوقع", min_value=0.0, step=1.0)
+                    colors, notes = st.text_input("الألوان"), st.text_area("ملاحظات")
+                    if st.form_submit_button("إضافة للمخزن"):
+                        if i_name:
+                            new_row_dict = {
+                                "Item_ID": len(df) + 1 if not df.empty else 1, "Item_Name": i_name, "Image_URL": get_image_base64(i_img),
+                                "Quantity": i_qty, "Purchase_Price": p_price, "Selling_Price": s_price,
+                                "Supplier_Name": new_sup if sup_sel == "مورد جديد..." else sup_sel, 
+                                "Services_Cost": serv_cost, "Min_Threshold": 5, "Colors": colors, "Notes": notes
+                            }
+                            worksheet.update(values=[[new_row_dict.get(h, "") for h in clean_headers]], range_name=f"A{len(all_data['inventory']) + 1}")
+                            st.cache_data.clear()
+                            st.success("تم الإضافة!"); time.sleep(1); st.rerun()
+
+            with tab_edit:
+                if not df.empty and "Item_Name" in df.columns:
+                    names_list = [n for n in df["Item_Name"].dropna().astype(str).tolist() if str(n).strip() != ""]
+                    if names_list:
+                        sel_name = st.selectbox("اختر للتعديل", names_list)
+                        c_row = df[df["Item_Name"].astype(str) == str(sel_name)].iloc[0]
+                        hid_id, c_sup = str(c_row.get("Item_ID", "")), str(c_row.get("Supplier_Name", ""))
+                        sup_idx = base_suppliers.index(c_sup) if c_sup in base_suppliers else 0
+
+                        with st.form("edit_inv_form", clear_on_submit=True):
+                            e_name = st.text_input("اسم الخامة", value=str(c_row.get("Item_Name", "")))
+                            e_img = st.file_uploader("صورة جديدة", type=["jpg", "png"])
+                            e_qty = st.number_input("الكمية", min_value=0, step=1, value=int(c_row.get("Quantity", 0)))
+                            e_sup_sel = st.selectbox("المورد", base_suppliers, index=sup_idx)
+                            e_new_sup = st.text_input("اسم المورد الجديد") if e_sup_sel == "مورد جديد..." else ""
+                            e_pprice = st.number_input("سعر الشراء", min_value=0.0, step=1.0, value=float(c_row.get("Purchase_Price", 0.0)))
+                            e_scost = st.number_input("خدمات", min_value=0.0, step=1.0, value=float(c_row.get("Services_Cost", 0.0)))
+                            e_sprice = st.number_input("سعر البيع", min_value=0.0, step=1.0, value=float(c_row.get("Selling_Price", 0.0)))
+                            e_colors, e_notes = st.text_input("الألوان", value=str(c_row.get("Colors", ""))), st.text_area("ملاحظات", value=str(c_row.get("Notes", "")))
+                            
+                            c_b1, c_b2 = st.columns(2)
+                            with c_b1: sub_e = st.form_submit_button("✏️ تحديث")
+                            with c_b2: sub_d = st.form_submit_button("🗑️ حذف")
+
+                        cell = worksheet.find(hid_id, in_column=clean_headers.index("Item_ID")+1) if "Item_ID" in clean_headers else worksheet.find(hid_id, in_column=1)
+
+                        if sub_e and cell:
+                            up_dict = {
+                                "Item_ID": hid_id, "Item_Name": e_name, "Image_URL": get_image_base64(e_img) if e_img else c_row.get("Image_URL", ""), 
+                                "Quantity": e_qty, "Purchase_Price": e_pprice, "Selling_Price": e_sprice, 
+                                "Supplier_Name": e_new_sup if e_sup_sel == "مورد جديد..." else e_sup_sel,
+                                "Services_Cost": e_scost, "Min_Threshold": c_row.get("Min_Threshold", 5), "Colors": e_colors, "Notes": e_notes
+                            }
+                            worksheet.update(values=[[up_dict.get(h, str(c_row.get(h, ""))) for h in clean_headers]], range_name=f"A{cell.row}")
+                            st.cache_data.clear()
+                            st.success("تم التحديث!"); time.sleep(1); st.rerun()
+
+                        if sub_d and cell:
+                            worksheet.delete_row(cell.row)
+                            st.cache_data.clear()
+                            st.success("تم الحذف!"); time.sleep(1); st.rerun()
 
     # ------------------------------------------
     # لوحة الإحصائيات (Dashboard)
     # ------------------------------------------
-    if st.session_state.app_mode == "📊 لوحة الإحصائيات (Dashboard)":
+    elif st.session_state.app_mode == "📊 لوحة الإحصائيات (Dashboard)":
         st.markdown("<h1>📊 إحصائيات وأداء البيزنس</h1><hr>", unsafe_allow_html=True)
         df_p, _ = load_data_safe(all_data["products"])
 
@@ -284,7 +428,6 @@ else:
 
         if warnings_count == 0:
             st.success("✅ المخزن ممتلئ (خامات ومستلزمات) ولا توجد نواقص خطيرة حالياً.")
-
 
     # ------------------------------------------
     # أرشيف فواتير المشتريات (Invoices)
@@ -333,7 +476,7 @@ else:
                                 "Image_URL": get_image_base64(inv_img) if inv_img else "", "Notes": inv_notes
                             }
                             ws_invoices.update(values=[[new_inv_dict.get(h, "") for h in head_invoices]], range_name=f"A{len(all_data['invoices']) + 1}")
-                            st.cache_data.clear() # تفريغ الكاش
+                            st.cache_data.clear()
                             st.success("تم أرشفة الفاتورة بنجاح!"); time.sleep(1); st.rerun()
                         else: st.error("يرجى إدخال مكان الشراء على الأقل.")
                         
@@ -442,118 +585,6 @@ else:
                                 st.cache_data.clear()
                                 st.success("تم الحفظ!"); time.sleep(1); st.rerun()
             else: st.info("لا توجد مستلزمات.")
-
-    # ------------------------------------------
-    # إدارة المخزون (الخامات الأساسية)
-    # ------------------------------------------
-    elif st.session_state.app_mode == "📦 المخزون الأساسي (الخامات)":
-        st.markdown("<h1>📦 الخامات والمخزون الأساسي</h1><hr>", unsafe_allow_html=True)
-        col1, col2 = st.columns([3, 1])
-
-        with col1:
-            h_col, s_col, b_col = st.columns([2, 1.5, 0.5], vertical_alignment="center")
-            with h_col: st.markdown('<div style="color: white; font-size: 24px; font-weight: bold;">📋 الخامات المتاحة</div>', unsafe_allow_html=True)
-            with s_col: search_term = st.text_input("Search", label_visibility="collapsed", placeholder="🔍 ابحث...", key="inv_s")
-            with b_col: st.button("Search", use_container_width=True, key="inv_b")
-
-            display_df = df.copy()
-            if not display_df.empty and "Item_Name" in display_df.columns and search_term:
-                display_df = display_df[display_df["Item_Name"].astype(str).str.contains(search_term, case=False, na=False)]
-
-            if not display_df.empty and "Item_Name" in display_df.columns:
-                html_table = '<div style="width: 100%; overflow-x: auto;"><table style="width:100%; min-width: 1200px; text-align:center; border-collapse: collapse; font-size: 16px; margin-top: 15px;">'
-                headers = ["ID", "Name", "Image", "Qty", "Cost", "Sell Price", "Supplier", "Services/Acc", "Total Cost"]
-                html_table += "<tr>" + "".join([f'<th style="color: #5ce1d6; border-bottom: 2px solid #5ce1d6; padding: 12px;">{h}</th>' for h in headers]) + "</tr>"
-
-                for _, row in display_df.iterrows():
-                    html_table += "<tr>"
-                    p_price, s_cost = row.get("Purchase_Price", 0), row.get("Services_Cost", 0)
-                    cols_data = [
-                        row.get("Item_ID", ""), row.get("Item_Name", ""), row.get("Image_URL", ""),
-                        row.get("Quantity", ""), p_price, row.get("Selling_Price", ""),
-                        row.get("Supplier_Name", ""), s_cost, f'<span style="color:#ffcc00; font-weight:bold;">{float(p_price) + float(s_cost)}</span>'
-                    ]
-                    for i, val in enumerate(cols_data):
-                        if i == 2 and str(val).startswith("data:image"):
-                            html_table += f'<td style="border-bottom: 1px solid #333; padding: 12px;"><img src="{val}" width="50" style="border-radius: 5px;"></td>'
-                        else: html_table += f'<td style="color: white; border-bottom: 1px solid #333; padding: 12px;">{val}</td>'
-                    html_table += "</tr>"
-                html_table += "</table></div>"
-                st.markdown(html_table, unsafe_allow_html=True)
-            else: st.info("No items found.")
-
-        with col2:
-            tab_add, tab_edit = st.tabs(["➕ Add Item", "✏️ Edit Item"])
-            base_suppliers = ["محمود بلاستيك", "مكتبة الفنون"]
-            if not df.empty and "Supplier_Name" in df.columns:
-                for s in df["Supplier_Name"].dropna().astype(str).unique():
-                    if s and s.strip() != "" and s not in base_suppliers and s != "مورد جديد...": base_suppliers.append(s)
-            base_suppliers.append("مورد جديد...")
-
-            with tab_add:
-                with st.form("add_inv_form", clear_on_submit=True):
-                    i_name = st.text_input("اسم الخامة")
-                    i_img = st.file_uploader("صورة", type=["jpg", "png"])
-                    i_qty = st.number_input("الكمية", min_value=0, step=1)
-                    sup_sel = st.selectbox("المورد (Supplier)", base_suppliers)
-                    new_sup = st.text_input("اسم المورد الجديد") if sup_sel == "مورد جديد..." else ""
-                    p_price = st.number_input("سعر الشراء الأساسي", min_value=0.0, step=1.0)
-                    serv_cost = st.number_input("تكلفة خدمات إضافية", min_value=0.0, step=1.0)
-                    s_price = st.number_input("سعر البيع المتوقع", min_value=0.0, step=1.0)
-                    colors, notes = st.text_input("الألوان"), st.text_area("ملاحظات")
-                    if st.form_submit_button("إضافة للمخزن"):
-                        if i_name:
-                            new_row_dict = {
-                                "Item_ID": len(df) + 1 if not df.empty else 1, "Item_Name": i_name, "Image_URL": get_image_base64(i_img),
-                                "Quantity": i_qty, "Purchase_Price": p_price, "Selling_Price": s_price,
-                                "Supplier_Name": new_sup if sup_sel == "مورد جديد..." else sup_sel, 
-                                "Services_Cost": serv_cost, "Min_Threshold": 5, "Colors": colors, "Notes": notes
-                            }
-                            worksheet.update(values=[[new_row_dict.get(h, "") for h in clean_headers]], range_name=f"A{len(all_data['inventory']) + 1}")
-                            st.cache_data.clear()
-                            st.success("تم الإضافة!"); time.sleep(1); st.rerun()
-
-            with tab_edit:
-                if not df.empty and "Item_Name" in df.columns:
-                    names_list = [n for n in df["Item_Name"].dropna().astype(str).tolist() if str(n).strip() != ""]
-                    if names_list:
-                        sel_name = st.selectbox("اختر للتعديل", names_list)
-                        c_row = df[df["Item_Name"].astype(str) == str(sel_name)].iloc[0]
-                        hid_id, c_sup = str(c_row.get("Item_ID", "")), str(c_row.get("Supplier_Name", ""))
-                        sup_idx = base_suppliers.index(c_sup) if c_sup in base_suppliers else 0
-
-                        with st.form("edit_inv_form", clear_on_submit=True):
-                            e_name = st.text_input("اسم الخامة", value=str(c_row.get("Item_Name", "")))
-                            e_img = st.file_uploader("صورة جديدة", type=["jpg", "png"])
-                            e_qty = st.number_input("الكمية", min_value=0, step=1, value=int(c_row.get("Quantity", 0)))
-                            e_sup_sel = st.selectbox("المورد", base_suppliers, index=sup_idx)
-                            e_new_sup = st.text_input("اسم المورد الجديد") if e_sup_sel == "مورد جديد..." else ""
-                            e_pprice = st.number_input("سعر الشراء", min_value=0.0, step=1.0, value=float(c_row.get("Purchase_Price", 0.0)))
-                            e_scost = st.number_input("خدمات", min_value=0.0, step=1.0, value=float(c_row.get("Services_Cost", 0.0)))
-                            e_sprice = st.number_input("سعر البيع", min_value=0.0, step=1.0, value=float(c_row.get("Selling_Price", 0.0)))
-                            e_colors, e_notes = st.text_input("الألوان", value=str(c_row.get("Colors", ""))), st.text_area("ملاحظات", value=str(c_row.get("Notes", "")))
-                            
-                            c_b1, c_b2 = st.columns(2)
-                            with c_b1: sub_e = st.form_submit_button("✏️ تحديث")
-                            with c_b2: sub_d = st.form_submit_button("🗑️ حذف")
-
-                        cell = worksheet.find(hid_id, in_column=clean_headers.index("Item_ID")+1) if "Item_ID" in clean_headers else worksheet.find(hid_id, in_column=1)
-
-                        if sub_e and cell:
-                            up_dict = {
-                                "Item_ID": hid_id, "Item_Name": e_name, "Image_URL": get_image_base64(e_img) if e_img else c_row.get("Image_URL", ""), 
-                                "Quantity": e_qty, "Purchase_Price": e_pprice, "Selling_Price": e_sprice, 
-                                "Supplier_Name": e_new_sup if e_sup_sel == "مورد جديد..." else e_sup_sel,
-                                "Services_Cost": e_scost, "Min_Threshold": c_row.get("Min_Threshold", 5), "Colors": e_colors, "Notes": e_notes
-                            }
-                            worksheet.update(values=[[up_dict.get(h, str(c_row.get(h, ""))) for h in clean_headers]], range_name=f"A{cell.row}")
-                            st.cache_data.clear()
-                            st.success("تم التحديث!"); time.sleep(1); st.rerun()
-
-                        if sub_d and cell:
-                            worksheet.delete_row(cell.row)
-                            st.cache_data.clear()
-                            st.success("تم الحذف!"); time.sleep(1); st.rerun()
 
     # ------------------------------------------
     # إدارة المستلزمات الإضافية (Supplies)
