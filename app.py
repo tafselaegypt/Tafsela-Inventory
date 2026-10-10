@@ -11,7 +11,7 @@ import pandas as pd
 import streamlit as st
 
 # ==========================================
-# دوال مساعدة
+# Helper Functions
 # ==========================================
 def get_col_letter(col_idx):
     result = ""
@@ -34,7 +34,7 @@ def get_image_base64(uploaded_file):
     return ""
 
 # ==========================================
-# إعدادات الصفحة وتهيئة الذاكرة (Session State)
+# Page Config & Session State
 # ==========================================
 st.set_page_config(page_title="Tafsela ERP System", layout="wide", initial_sidebar_state="expanded")
 
@@ -45,7 +45,7 @@ if 'user_email' not in st.session_state:
 if 'is_admin' not in st.session_state:
     st.session_state.is_admin = False
 if 'app_mode' not in st.session_state:
-    st.session_state.app_mode = "🏠 الصفحة الرئيسية (Home)"
+    st.session_state.app_mode = "🏠 Home Page"
 
 # CSS
 st.markdown(
@@ -67,7 +67,7 @@ st.markdown(
 )
 
 # ==========================================
-# الاتصال بقاعدة البيانات (جوجل شيت)
+# Database Connection
 # ==========================================
 try:
     raw_key = st.secrets["private_key"]
@@ -82,38 +82,36 @@ try:
     gc = gspread.authorize(credentials)
     sh = gc.open("My_Inventory")
 
-    # التأكد من وجود شيت المستخدمين (Users) وحل مشكلة الإيرور
     try:
         ws_users = sh.worksheet("Users")
     except WorksheetNotFound:
         ws_users = sh.add_worksheet(title="Users", rows=100, cols=4)
         ws_users.append_row(["Email", "Password", "Status", "Role"])
         
-    # التأكد إن العناوين موجودة لو الشيت كان فاضي
     if not ws_users.get_all_values():
         ws_users.append_row(["Email", "Password", "Status", "Role"])
 
 except Exception as e:
-    st.error(f"حدث خطأ في الاتصال بقاعدة البيانات: {e}")
+    st.error(f"Database Connection Error: {e}")
     st.stop()
 
 # ==========================================
-# نظام تسجيل الدخول (Authentication)
+# Authentication (Login / Register) - English UI
 # ==========================================
 if not st.session_state.logged_in:
     col1, col2, col3 = st.columns([1, 1.5, 1])
     with col2:
         try: st.image("logi.png", use_container_width=True)
         except: st.write("📦 Tafsela Logo")
-        st.markdown("<h2 style='text-align: center;'>بوابة الدخول - Tafsela System</h2>", unsafe_allow_html=True)
+        st.markdown("<h2 style='text-align: center;'>Tafsela System - Gateway</h2>", unsafe_allow_html=True)
         
-        tab_login, tab_register = st.tabs(["🔐 تسجيل الدخول", "📝 إنشاء حساب جديد"])
+        tab_login, tab_register = st.tabs(["🔐 Login", "📝 Register"])
         
         with tab_login:
             with st.form("login_form"):
-                l_email = st.text_input("البريد الإلكتروني (Email)")
-                l_pass = st.text_input("كلمة المرور (Password)", type="password")
-                if st.form_submit_button("دخول (Login)"):
+                l_email = st.text_input("Email")
+                l_pass = st.text_input("Password", type="password")
+                if st.form_submit_button("Login"):
                     if l_email and l_pass:
                         users_data = ws_users.get_all_records()
                         df_users = pd.DataFrame(users_data)
@@ -124,59 +122,59 @@ if not st.session_state.logged_in:
                                     st.session_state.logged_in = True
                                     st.session_state.user_email = l_email
                                     st.session_state.is_admin = (user_row['Role'] == 'Admin')
-                                    st.success("تم تسجيل الدخول بنجاح! جاري التوجيه...")
+                                    st.success("Login successful! Redirecting...")
                                     time.sleep(1); st.rerun()
                                 else:
-                                    st.warning("حسابك قيد المراجعة (Pending). في انتظار موافقة الإدارة.")
+                                    st.warning("Account Pending. Please wait for Admin approval.")
                             else:
-                                st.error("كلمة المرور غير صحيحة!")
+                                st.error("Incorrect Password!")
                         else:
-                            st.error("البريد الإلكتروني غير مسجل لدينا.")
+                            st.error("Email not registered.")
                     else:
-                        st.error("يرجى إدخال البريد الإلكتروني وكلمة المرور.")
+                        st.error("Please enter Email and Password.")
 
         with tab_register:
             with st.form("register_form"):
-                r_email = st.text_input("البريد الإلكتروني (Email)")
-                r_pass = st.text_input("كلمة المرور (Password)", type="password")
-                r_pass2 = st.text_input("تأكيد كلمة المرور", type="password")
-                if st.form_submit_button("إنشاء حساب (Register)"):
+                r_email = st.text_input("Email")
+                r_pass = st.text_input("Password", type="password")
+                r_pass2 = st.text_input("Confirm Password", type="password")
+                if st.form_submit_button("Register"):
                     if r_email and r_pass and r_pass == r_pass2:
                         users_data = ws_users.get_all_values()
                         existing_emails = [row[0] for row in users_data[1:]] if len(users_data) > 1 else []
                         
                         if r_email in existing_emails:
-                            st.error("هذا البريد الإلكتروني مسجل بالفعل!")
+                            st.error("Email already registered!")
                         else:
                             if r_email.lower().strip() == "nadineali2006@gmail.com":
                                 status, role = "Approved", "Admin"
-                                st.success("تم التعرف عليك كمدير النظام. تم الموافقة أوتوماتيكياً!")
+                                st.success("Admin recognized. Approved automatically!")
                             else:
                                 status, role = "Pending", "User"
-                                st.success("تم إرسال طلبك بنجاح. يرجى انتظار موافقة الإدارة (Admin).")
+                                st.success("Registration successful. Waiting for Admin approval.")
                                 
                             ws_users.append_row([r_email, hash_password(r_pass), status, role])
                             time.sleep(2); st.rerun()
                     else:
-                        st.error("تأكد من ملء جميع الخانات وتطابق كلمة المرور.")
+                        st.error("Please fill all fields correctly and ensure passwords match.")
 
 # ==========================================
-# التطبيق الرئيسي (بعد تسجيل الدخول)
+# Main Application (After Login)
 # ==========================================
 else:
     with st.sidebar:
         try: st.image("logi.png", use_container_width=True)
         except: st.write("📦")
-        st.markdown(f"<p style='text-align: center; font-size:14px; color:#aaa;'>مرحباً: {st.session_state.user_email}</p><hr>", unsafe_allow_html=True)
+        st.markdown(f"<p style='text-align: center; font-size:14px; color:#aaa;'>Welcome: {st.session_state.user_email}</p><hr>", unsafe_allow_html=True)
         
-        menu_options = ["🏠 الصفحة الرئيسية (Home)", "📦 المخزون والموردين", "🛍️ المنتجات والمبيعات", "📊 لوحة الإحصائيات (Dashboard)"]
+        menu_options = ["🏠 Home Page", "📦 المخزون والموردين", "🛍️ المنتجات والمبيعات", "📊 لوحة الإحصائيات (Dashboard)"]
         if st.session_state.is_admin:
-            menu_options.append("⚙️ لوحة الإدارة (Admin Panel)")
+            menu_options.append("⚙️ Admin Panel")
             
-        st.radio("القائمة الرئيسية:", menu_options, key="app_mode")
+        st.radio("Main Menu:", menu_options, key="app_mode")
         
         st.markdown("<br><br>", unsafe_allow_html=True)
-        if st.button("🚪 تسجيل الخروج (Logout)"):
+        if st.button("🚪 Logout"):
             st.session_state.logged_in = False
             st.session_state.user_email = ""
             st.session_state.is_admin = False
@@ -199,9 +197,9 @@ else:
         df = pd.DataFrame(columns=clean_headers)
 
     # ------------------------------------------
-    # الصفحة الرئيسية (Home Page)
+    # Home Page
     # ------------------------------------------
-    if st.session_state.app_mode == "🏠 الصفحة الرئيسية (Home)":
+    if st.session_state.app_mode == "🏠 Home Page":
         st.markdown("<br><br>", unsafe_allow_html=True)
         col_img1, col_img2, col_img3 = st.columns([1, 1, 1])
         with col_img2:
@@ -212,17 +210,17 @@ else:
         
         col_nav1, col_nav2, col_nav3 = st.columns([1, 2, 1])
         with col_nav2:
-            nav_options = [opt for opt in menu_options if opt != "🏠 الصفحة الرئيسية (Home)"]
-            selected_nav = st.selectbox("إلى أين تريد الذهاب؟ (Where to?)", nav_options)
-            if st.button("انتقال 🚀 (Go)", use_container_width=True):
+            nav_options = [opt for opt in menu_options if opt != "🏠 Home Page"]
+            selected_nav = st.selectbox("Where to?", nav_options)
+            if st.button("🚀 Go", use_container_width=True):
                 st.session_state.app_mode = selected_nav
                 st.rerun()
 
     # ------------------------------------------
-    # لوحة الإدارة للمدير (Admin Panel)
+    # Admin Panel
     # ------------------------------------------
-    elif st.session_state.app_mode == "⚙️ لوحة الإدارة (Admin Panel)" and st.session_state.is_admin:
-        st.markdown("<h1>⚙️ إدارة المستخدمين (Admin Panel)</h1><hr>", unsafe_allow_html=True)
+    elif st.session_state.app_mode == "⚙️ Admin Panel" and st.session_state.is_admin:
+        st.markdown("<h1>⚙️ Admin Panel (User Management)</h1><hr>", unsafe_allow_html=True)
         
         users_raw = ws_users.get_all_values()
         if len(users_raw) > 1:
@@ -230,23 +228,23 @@ else:
             pending_users = df_u[df_u['Status'] == 'Pending']
             
             if not pending_users.empty:
-                st.warning(f"يوجد عدد ({len(pending_users)}) طلب تسجيل قيد الانتظار.")
+                st.warning(f"There are ({len(pending_users)}) pending registration requests.")
                 for _, row in pending_users.iterrows():
-                    st.write(f"📧 البريد: **{row['Email']}**")
-                    if st.button(f"✅ الموافقة (Approve)", key=f"app_{row['Email']}"):
+                    st.write(f"📧 Email: **{row['Email']}**")
+                    if st.button(f"✅ Approve", key=f"app_{row['Email']}"):
                         cell = ws_users.find(row['Email'], in_column=1)
                         if cell:
                             ws_users.update_cell(cell.row, 3, "Approved") 
-                            st.success(f"تمت الموافقة على {row['Email']} بنجاح!")
+                            st.success(f"Approved {row['Email']} successfully!")
                             time.sleep(1); st.rerun()
                     st.markdown("<hr>", unsafe_allow_html=True)
             else:
-                st.success("لا توجد طلبات معلقة. جميع المستخدمين نشطين.")
+                st.success("No pending requests. All users are active.")
             
-            st.markdown("### 👥 جميع المستخدمين المسجلين:")
+            st.markdown("### 👥 All Registered Users:")
             st.dataframe(df_u[['Email', 'Status', 'Role']], use_container_width=True)
         else:
-            st.info("لا يوجد مستخدمين مسجلين حتى الآن.")
+            st.info("No registered users yet.")
 
     # ------------------------------------------
     # إدارة المخزون والموردين (Inventory)
