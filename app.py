@@ -6,6 +6,7 @@ import hashlib
 from PIL import Image
 from google.oauth2.service_account import Credentials
 import gspread
+from gspread.exceptions import WorksheetNotFound
 import pandas as pd
 import streamlit as st
 
@@ -20,7 +21,6 @@ def get_col_letter(col_idx):
     return result
 
 def hash_password(password):
-    # تشفير كلمة المرور لحمايتها
     return hashlib.sha256(str(password).encode('utf-8')).hexdigest()
 
 def get_image_base64(uploaded_file):
@@ -82,11 +82,15 @@ try:
     gc = gspread.authorize(credentials)
     sh = gc.open("My_Inventory")
 
-    # التأكد من وجود شيت المستخدمين (Users) أو إنشاؤه
+    # التأكد من وجود شيت المستخدمين (Users) وحل مشكلة الإيرور
     try:
         ws_users = sh.worksheet("Users")
-    except:
+    except WorksheetNotFound:
         ws_users = sh.add_worksheet(title="Users", rows=100, cols=4)
+        ws_users.append_row(["Email", "Password", "Status", "Role"])
+        
+    # التأكد إن العناوين موجودة لو الشيت كان فاضي
+    if not ws_users.get_all_values():
         ws_users.append_row(["Email", "Password", "Status", "Role"])
 
 except Exception as e:
@@ -115,7 +119,7 @@ if not st.session_state.logged_in:
                         df_users = pd.DataFrame(users_data)
                         if not df_users.empty and l_email in df_users['Email'].values:
                             user_row = df_users[df_users['Email'] == l_email].iloc[0]
-                            if user_row['Password'] == hash_password(l_pass):
+                            if str(user_row['Password']) == hash_password(l_pass):
                                 if user_row['Status'] == 'Approved':
                                     st.session_state.logged_in = True
                                     st.session_state.user_email = l_email
@@ -144,7 +148,6 @@ if not st.session_state.logged_in:
                         if r_email in existing_emails:
                             st.error("هذا البريد الإلكتروني مسجل بالفعل!")
                         else:
-                            # لو الايميل نادين، يبقى ادمن و ابروفد فوراً
                             if r_email.lower().strip() == "nadineali2006@gmail.com":
                                 status, role = "Approved", "Admin"
                                 st.success("تم التعرف عليك كمدير النظام. تم الموافقة أوتوماتيكياً!")
@@ -161,7 +164,6 @@ if not st.session_state.logged_in:
 # التطبيق الرئيسي (بعد تسجيل الدخول)
 # ==========================================
 else:
-    # القائمة الجانبية (Sidebar)
     with st.sidebar:
         try: st.image("logi.png", use_container_width=True)
         except: st.write("📦")
@@ -234,7 +236,7 @@ else:
                     if st.button(f"✅ الموافقة (Approve)", key=f"app_{row['Email']}"):
                         cell = ws_users.find(row['Email'], in_column=1)
                         if cell:
-                            ws_users.update_cell(cell.row, 3, "Approved") # العمود 3 هو Status
+                            ws_users.update_cell(cell.row, 3, "Approved") 
                             st.success(f"تمت الموافقة على {row['Email']} بنجاح!")
                             time.sleep(1); st.rerun()
                     st.markdown("<hr>", unsafe_allow_html=True)
@@ -385,10 +387,10 @@ else:
     elif st.session_state.app_mode == "🛍️ المنتجات والمبيعات":
         st.markdown("<h1>🛍️ سجل المنتجات والمبيعات</h1><hr>", unsafe_allow_html=True)
         try: ws_prod = sh.worksheet("Products")
-        except:
+        except WorksheetNotFound:
             ws_prod = sh.add_worksheet(title="Products", rows=1000, cols=20)
             ws_prod.append_row(["Product_ID", "Product_Name", "Image_URL", "Quantity", "Display_Location", "Cost_Price", "Selling_Price", "Profit", "Is_Sold", "Sale_Date", "Customer_Name", "Notes"])
-            st.rerun()
+            time.sleep(1); st.rerun()
 
         raw_p = ws_prod.get_all_values()
         if len(raw_p) > 0:
