@@ -10,7 +10,7 @@ import pandas as pd
 import streamlit as st
 
 # ==========================================
-# Helper Functions
+# Helper Functions (الدوال المساعدة)
 # ==========================================
 def get_col_letter(col_idx):
     result = ""
@@ -44,14 +44,6 @@ def load_data_safe(raw_values):
             safe_data.append(row[:len(headers)])
     return pd.DataFrame(safe_data, columns=headers), headers
 
-def ensure_worksheet(sh, title, default_headers):
-    try:
-        return sh.worksheet(title)
-    except:
-        ws = sh.add_worksheet(title=title, rows=1000, cols=max(10, len(default_headers)+2))
-        ws.append_row(default_headers)
-        return ws
-
 # ==========================================
 # Page Config & Session State
 # ==========================================
@@ -61,8 +53,6 @@ if 'logged_in' not in st.session_state: st.session_state.logged_in = False
 if 'user_email' not in st.session_state: st.session_state.user_email = ""
 if 'is_admin' not in st.session_state: st.session_state.is_admin = False
 if 'app_mode' not in st.session_state: st.session_state.app_mode = "📦 المخزون الأساسي (الخامات)"
-
-# قائمة التنبيهات المخفية مؤقتاً أثناء الجلسة الحالية
 if 'dismissed_alerts' not in st.session_state: st.session_state.dismissed_alerts = []
 
 # CSS Styling
@@ -154,7 +144,7 @@ if not st.session_state.logged_in:
                                     st.session_state.logged_in = True
                                     st.session_state.user_email = l_email
                                     st.session_state.is_admin = (user_row['Role'] == 'Admin')
-                                    st.session_state.dismissed_alerts = [] # تصفير الإشعارات المخفية عند تسجيل الدخول الجديد
+                                    st.session_state.dismissed_alerts = [] # تصفير الإشعارات عند الدخول
                                     st.success("Login successful! Redirecting...")
                                     time.sleep(1); st.rerun()
                                 else: st.warning("Account Pending. Please wait for Admin approval.")
@@ -189,6 +179,27 @@ if not st.session_state.logged_in:
 # Main Application (After Login)
 # ==========================================
 else:
+    # --- Auto-Fix Headers in Google Sheets (المُصلح الأوتوماتيكي للعناوين) ---
+    inv_raw = all_data["inventory"]
+    if inv_raw and len(inv_raw) > 0:
+        inv_headers = [str(h).strip() for h in inv_raw[0]]
+        missing_inv = [h for h in ["Supplier_Name", "Services_Cost", "Min_Threshold"] if h not in inv_headers]
+        if missing_inv:
+            new_inv_headers = inv_headers + missing_inv
+            sh.get_worksheet(0).update(values=[new_inv_headers], range_name="A1")
+            st.cache_data.clear()
+            st.rerun()
+
+    sup_raw = all_data["supplies"]
+    if sup_raw and len(sup_raw) > 0:
+        sup_headers = [str(h).strip() for h in sup_raw[0]]
+        if "Min_Threshold" not in sup_headers:
+            new_sup_headers = sup_headers + ["Min_Threshold"]
+            sh.worksheet("Supplies").update(values=[new_sup_headers], range_name="A1")
+            st.cache_data.clear()
+            st.rerun()
+
+    # --- القائمة الجانبية ---
     with st.sidebar:
         try: st.image("logi.png", use_container_width=True)
         except: st.write("📦")
@@ -213,43 +224,24 @@ else:
             st.session_state.dismissed_alerts = []
             st.rerun()
 
-    # --- تجهيز الداتا من الذاكرة وضمان وجود عمود الحد الأدنى ---
+    # --- تجهيز الداتا من الذاكرة ---
     df, clean_headers = load_data_safe(all_data["inventory"])
     if not df.empty:
-        if "Supplier_Name" not in clean_headers: clean_headers.append("Supplier_Name")
-        if "Services_Cost" not in clean_headers: clean_headers.append("Services_Cost")
-        if "Min_Threshold" not in clean_headers: clean_headers.append("Min_Threshold")
-        
-        for col in ["Supplier_Name", "Services_Cost"]:
-            if col not in df.columns: df[col] = ""
-            
-        if "Min_Threshold" not in df.columns: df["Min_Threshold"] = 5
-        df["Min_Threshold"] = pd.to_numeric(df["Min_Threshold"], errors='coerce').fillna(5)
-        
+        df["Min_Threshold"] = pd.to_numeric(df.get("Min_Threshold", 5), errors='coerce').fillna(5)
         for col in ["Item_ID", "Quantity", "Purchase_Price", "Selling_Price", "Shipping_Cost", "Services_Cost"]: 
             if col in df.columns: df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
-    else:
-        clean_headers = ["Item_ID", "Item_Name", "Image_URL", "Quantity", "Purchase_Price", "Selling_Price", "Purchase_Location", "Shipping_Cost", "Supplier_Name", "Services_Cost", "Min_Threshold", "Colors", "Notes"]
-        df = pd.DataFrame(columns=clean_headers)
-
+    
     df_supplies, head_supplies = load_data_safe(all_data["supplies"])
     if not df_supplies.empty:
-        if "Min_Threshold" not in head_supplies: head_supplies.append("Min_Threshold")
-        if "Min_Threshold" not in df_supplies.columns: df_supplies["Min_Threshold"] = 10
-        df_supplies["Min_Threshold"] = pd.to_numeric(df_supplies["Min_Threshold"], errors='coerce').fillna(10)
+        df_supplies["Min_Threshold"] = pd.to_numeric(df_supplies.get("Min_Threshold", 10), errors='coerce').fillna(10)
         for col in ["Supply_ID", "Quantity", "Cost_Price"]:
             if col in df_supplies.columns: df_supplies[col] = pd.to_numeric(df_supplies[col], errors='coerce').fillna(0)
-    else:
-        head_supplies = ["Supply_ID", "Supply_Name", "Image_URL", "Quantity", "Cost_Price", "Supplier_Name", "Min_Threshold", "Notes"]
-        df_supplies = pd.DataFrame(columns=head_supplies)
 
     df_invoices, head_invoices = load_data_safe(all_data["invoices"])
     if not df_invoices.empty:
         for col in ["Invoice_ID", "Total_Amount"]:
             if col in df_invoices.columns: df_invoices[col] = pd.to_numeric(df_invoices[col], errors='coerce').fillna(0)
-    else:
-        head_invoices = ["Invoice_ID", "Date", "Supplier_Location", "Total_Amount", "Image_URL", "Notes"]
-        df_invoices = pd.DataFrame(columns=head_invoices)
+
 
     # ------------------------------------------
     # إدارة المخزون (الخامات الأساسية)
@@ -321,7 +313,7 @@ else:
                             }
                             sh.get_worksheet(0).update(values=[[new_row_dict.get(h, "") for h in clean_headers]], range_name=f"A{len(all_data['inventory']) + 1}")
                             st.cache_data.clear()
-                            st.success("تم الإضافة!"); time.sleep(1); st.rerun()
+                            st.success("تم الإضافة بنجاح!"); time.sleep(1); st.rerun()
 
             with tab_edit:
                 if not df.empty and "Item_Name" in df.columns:
@@ -394,40 +386,47 @@ else:
         st.markdown("<br><hr>", unsafe_allow_html=True)
             
         st.markdown("<h3>⚠️ تنبيهات نواقص المخزن</h3>", unsafe_allow_html=True)
-        warnings_count = 0
         
-        # فحص نواقص الخامات الأساسية مع إمكانية إغلاق الإشعار (Dismiss)
+        total_alerts = 0
+        displayed_alerts = 0
+
         if not df.empty:
             low_stock = df[df["Quantity"] <= df["Min_Threshold"]]
             for _, row in low_stock.iterrows():
+                total_alerts += 1
                 alert_key = f"inv_{row.get('Item_ID', _)}"
                 if alert_key not in st.session_state.dismissed_alerts:
-                    warnings_count += 1
+                    displayed_alerts += 1
                     col_alert, col_btn = st.columns([5, 1])
                     with col_alert:
                         st.error(f"🚨 خامة أساسية: **{row['Item_Name']}** - متبقي منها **{row['Quantity']}** قطع فقط! (الحد الأدنى: {int(row.get('Min_Threshold', 5))})")
                     with col_btn:
-                        if st.button("❌ إغلاق", key=f"dismiss_{alert_key}"):
+                        if st.button("❌ إخفاء", key=f"dismiss_{alert_key}"):
                             st.session_state.dismissed_alerts.append(alert_key)
                             st.rerun()
         
-        # فحص نواقص المستلزمات مع إمكانية إغلاق الإشعار (Dismiss)
         if not df_supplies.empty:
             low_sup = df_supplies[df_supplies["Quantity"] <= df_supplies["Min_Threshold"]]
             for _, row in low_sup.iterrows():
+                total_alerts += 1
                 alert_key = f"sup_{row.get('Supply_ID', _)}"
                 if alert_key not in st.session_state.dismissed_alerts:
-                    warnings_count += 1
+                    displayed_alerts += 1
                     col_alert, col_btn = st.columns([5, 1])
                     with col_alert:
                         st.warning(f"⚠️ مستلزم إضافي: **{row['Supply_Name']}** - متبقي منها **{row['Quantity']}** فقط! (الحد الأدنى: {int(row.get('Min_Threshold', 10))})")
                     with col_btn:
-                        if st.button("❌ إغلاق", key=f"dismiss_{alert_key}"):
+                        if st.button("❌ إخفاء", key=f"dismiss_{alert_key}"):
                             st.session_state.dismissed_alerts.append(alert_key)
                             st.rerun()
 
-        if warnings_count == 0:
-            st.success("✅ المخزن ممتلئ (خامات ومستلزمات) ولا توجد تنبيهات نشطة حالياً.")
+        if total_alerts == 0:
+            st.success("✅ المخزن ممتلئ (خامات ومستلزمات) ولا توجد أي نواقص.")
+        elif displayed_alerts == 0 and total_alerts > 0:
+            st.info(f"⚠️ يوجد عدد ({total_alerts}) تنبيهات للنواقص في المخزن، ولكن قمتِ بإخفائها مؤقتاً.")
+            if st.button("🔄 إظهار التنبيهات المخفية"):
+                st.session_state.dismissed_alerts = []
+                st.rerun()
 
     # ------------------------------------------
     # أرشيف فواتير المشتريات (Invoices)
@@ -536,9 +535,10 @@ else:
                     for _, row in pending_users.iterrows():
                         st.write(f"📧 Email: **{row.get('Email', '')}**")
                         if st.button(f"✅ Approve", key=f"app_{row.get('Email', '')}"):
-                            cell = ws_users.find(row.get('Email', ''), in_column=1)
+                            ws_u = sh.worksheet("Users")
+                            cell = ws_u.find(row.get('Email', ''), in_column=1)
                             if cell:
-                                ws_users.update_cell(cell.row, 3, "Approved") 
+                                ws_u.update_cell(cell.row, 3, "Approved") 
                                 st.cache_data.clear()
                                 st.success(f"Approved {row.get('Email', '')} successfully!")
                                 time.sleep(1); st.rerun()
@@ -558,7 +558,7 @@ else:
                     hid_id_th = str(c_row_th.get("Item_ID", ""))
                     with st.form("thresh_form"):
                         new_thresh = st.number_input("الحد الأدنى للتنبيه", min_value=0, step=1, value=int(c_row_th.get("Min_Threshold", 5)))
-                        if st.form_submit_button("💾 حفظ الإعدادات"):
+                        if st.form_submit_button("💾 حفظ الإعدادات و مسح الكاش"):
                             ws_inv = sh.get_worksheet(0)
                             cell_th = ws_inv.find(hid_id_th, in_column=clean_headers.index("Item_ID")+1) if "Item_ID" in clean_headers else ws_inv.find(hid_id_th, in_column=1)
                             if cell_th:
@@ -566,7 +566,7 @@ else:
                                 up_dict_th["Min_Threshold"] = new_thresh
                                 ws_inv.update(values=[[up_dict_th.get(h, "") for h in clean_headers]], range_name=f"A{cell_th.row}")
                                 st.cache_data.clear()
-                                st.success("تم الحفظ وتحديث التنبيهات!")
+                                st.success("تم الحفظ وتحديث التنبيهات بنجاح!")
                                 time.sleep(1); st.rerun()
             else: st.info("لا توجد خامات.")
 
@@ -579,7 +579,7 @@ else:
                     hid_id_sth = str(c_row_sth.get("Supply_ID", ""))
                     with st.form("thresh_sup_form"):
                         new_s_thresh = st.number_input("الحد الأدنى للتنبيه", min_value=0, step=1, value=int(c_row_sth.get("Min_Threshold", 10)))
-                        if st.form_submit_button("💾 حفظ الإعدادات للمستلزم"):
+                        if st.form_submit_button("💾 حفظ الإعدادات للمستلزم و مسح الكاش"):
                             ws_sup = sh.worksheet("Supplies")
                             cell_sth = ws_sup.find(hid_id_sth, in_column=head_supplies.index("Supply_ID")+1) if "Supply_ID" in head_supplies else ws_sup.find(hid_id_sth, in_column=1)
                             if cell_sth:
@@ -587,7 +587,7 @@ else:
                                 up_dict_sth["Min_Threshold"] = new_s_thresh
                                 ws_sup.update(values=[[up_dict_sth.get(h, "") for h in head_supplies]], range_name=f"A{cell_sth.row}")
                                 st.cache_data.clear()
-                                st.success("تم الحفظ وتحديث التنبيهات!")
+                                st.success("تم الحفظ وتحديث التنبيهات بنجاح!")
                                 time.sleep(1); st.rerun()
             else: st.info("لا توجد مستلزمات.")
 
@@ -655,10 +655,9 @@ else:
                                 "Supplier_Name": s_new_vend if s_vend == "مورد جديد..." else s_vend, 
                                 "Min_Threshold": s_thresh, "Notes": s_notes
                             }
-                            ws_supplies = sh.worksheet("Supplies")
-                            ws_supplies.update(values=[[new_s_dict.get(h, "") for h in head_supplies]], range_name=f"A{len(all_data['supplies']) + 1}")
+                            sh.worksheet("Supplies").update(values=[[new_s_dict.get(h, "") for h in head_supplies]], range_name=f"A{len(all_data['supplies']) + 1}")
                             st.cache_data.clear()
-                            st.success("تم الإضافة!"); time.sleep(1); st.rerun()
+                            st.success("تم الإضافة بنجاح!"); time.sleep(1); st.rerun()
 
             with ts_edit:
                 if not df_supplies.empty and "Supply_Name" in df_supplies.columns:
@@ -691,12 +690,12 @@ else:
                             }
                             ws_sup.update(values=[[up_s_dict.get(h, str(c_s_row.get(h, ""))) for h in head_supplies]], range_name=f"A{cell_s.row}")
                             st.cache_data.clear()
-                            st.success("تم التحديث!"); time.sleep(1); st.rerun()
+                            st.success("تم التحديث بنجاح!"); time.sleep(1); st.rerun()
 
                         if sub_s_d and cell_s:
                             ws_sup.delete_row(cell_s.row)
                             st.cache_data.clear()
-                            st.success("تم الحذف!"); time.sleep(1); st.rerun()
+                            st.success("تم الحذف بنجاح!"); time.sleep(1); st.rerun()
 
     # ------------------------------------------
     # المنتجات والمبيعات (Products)
@@ -760,8 +759,7 @@ else:
                                 "Is_Sold": "نعم" if is_sold else "لا", "Sale_Date": str(p_date) if is_sold and p_date else "", 
                                 "Customer_Name": p_cust if is_sold else "", "Notes": p_notes
                             }
-                            ws_prod = sh.worksheet("Products")
-                            ws_prod.update(values=[[p_dict.get(h, "") for h in c_head_p]], range_name=f"A{len(all_data['products'])+1}")
+                            sh.worksheet("Products").update(values=[[p_dict.get(h, "") for h in c_head_p]], range_name=f"A{len(all_data['products'])+1}")
                             
                             if is_from_inv and used_qty:
                                 ws_inv = sh.get_worksheet(0)
@@ -827,11 +825,11 @@ else:
                                 "Is_Sold": "نعم" if edit_p_sold else "لا", "Sale_Date": str(e_p_date) if edit_p_sold and e_p_date else "",
                                 "Customer_Name": e_p_cust if edit_p_sold else "", "Notes": e_p_notes
                             }
-                        ws_p.update(values=[[up_p_dict.get(h, str(c_row_p.get(h, ""))) for h in c_head_p]], range_name=f"A{cell_p.row}")
-                        st.cache_data.clear()
-                        st.success("تم التحديث!"); time.sleep(1); st.rerun()
+                            ws_p.update(values=[[up_p_dict.get(h, str(c_row_p.get(h, ""))) for h in c_head_p]], range_name=f"A{cell_p.row}")
+                            st.cache_data.clear()
+                            st.success("تم التحديث بنجاح!"); time.sleep(1); st.rerun()
 
                         if sub_p_d and cell_p:
                             ws_p.delete_row(cell_p.row)
                             st.cache_data.clear()
-                            st.success("تم الحذف!"); time.sleep(1); st.rerun()
+                            st.success("تم الحذف بنجاح!"); time.sleep(1); st.rerun()
