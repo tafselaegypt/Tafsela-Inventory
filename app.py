@@ -10,7 +10,7 @@ import pandas as pd
 import streamlit as st
 
 # ==========================================
-# Helper Functions
+# Helper Functions (الدوال المساعدة)
 # ==========================================
 def get_col_letter(col_idx):
     result = ""
@@ -152,7 +152,7 @@ if not st.session_state.logged_in:
                                     st.session_state.logged_in = True
                                     st.session_state.user_email = l_email
                                     st.session_state.is_admin = (user_row['Role'] == 'Admin')
-                                    st.session_state.dismissed_alerts = [] 
+                                    st.session_state.dismissed_alerts = [] # تصفير الإشعارات عند الدخول
                                     st.success("Login successful! Redirecting...")
                                     time.sleep(1); st.rerun()
                                 else: st.warning("Account Pending. Please wait for Admin approval.")
@@ -188,7 +188,6 @@ if not st.session_state.logged_in:
 # ==========================================
 else:
     # --- Auto-Fix Headers in Google Sheets ---
-    # تحديث الكود للتركيز على Purchase_Location كعمود المورد
     inv_raw = all_data["inventory"]
     if inv_raw and len(inv_raw) > 0:
         inv_headers = [str(h).strip() for h in inv_raw[0]]
@@ -268,19 +267,18 @@ else:
                 display_df = display_df[display_df["Item_Name"].astype(str).str.contains(search_term, case=False, na=False)]
 
             if not display_df.empty and "Item_Name" in display_df.columns:
-                html_table = '<div style="width: 100%; overflow-x: auto;"><table style="width:100%; min-width: 1200px; text-align:center; border-collapse: collapse; font-size: 16px; margin-top: 15px;">'
-                headers = ["ID", "Name", "Image", "Qty", "Cost", "Sell Price", "Supplier", "Min Alert", "Total Cost"]
+                html_table = '<div style="width: 100%; overflow-x: auto;"><table style="width:100%; min-width: 1000px; text-align:center; border-collapse: collapse; font-size: 16px; margin-top: 15px;">'
+                # إزالة الأعمدة غير المرغوب فيها من العرض
+                headers = ["ID", "Name", "Image", "Qty", "Cost", "Sell Price", "Supplier"]
                 html_table += "<tr>" + "".join([f'<th style="color: #5ce1d6; border-bottom: 2px solid #5ce1d6; padding: 12px;">{h}</th>' for h in headers]) + "</tr>"
 
                 for _, row in display_df.iterrows():
                     html_table += "<tr>"
-                    p_price, s_cost = row.get("Purchase_Price", 0), row.get("Services_Cost", 0)
-                    min_t = row.get("Min_Threshold", 5)
-                    # تم ربط عمود Supplier بالداتا الموجودة في Purchase_Location
+                    p_price = row.get("Purchase_Price", 0)
                     cols_data = [
                         row.get("Item_ID", ""), row.get("Item_Name", ""), row.get("Image_URL", ""),
                         row.get("Quantity", ""), p_price, row.get("Selling_Price", ""),
-                        row.get("Purchase_Location", ""), min_t, f'<span style="color:#ffcc00; font-weight:bold;">{float(p_price) + float(s_cost)}</span>'
+                        row.get("Purchase_Location", "")
                     ]
                     for i, val in enumerate(cols_data):
                         if i == 2 and str(val).startswith("data:image"):
@@ -293,8 +291,6 @@ else:
 
         with col2:
             tab_add, tab_edit = st.tabs(["➕ Add Item", "✏️ Edit Item"])
-            
-            # مسح البيانات الوهمية تماماً وسحب الأسماء من الداتا فقط
             base_suppliers = []
             if not df.empty and "Purchase_Location" in df.columns:
                 for s in df["Purchase_Location"].dropna().astype(str).unique():
@@ -355,7 +351,7 @@ else:
 
                         if sub_e and cell:
                             up_dict = {
-                                "Item_ID": hid_id, "Item_Name": e_name, "Image_URL": get_image_base64(e_img) if e_img else c_row.get("Image_URL", ""), 
+                                "Item_ID": hid_id, "Item_Name": e_name, "Image_URL": get_image_base64(e_img) if e_img else str(c_row.get("Image_URL", "")), 
                                 "Quantity": e_qty, "Purchase_Price": e_pprice, "Selling_Price": e_sprice, 
                                 "Purchase_Location": e_new_sup if e_sup_sel == "مورد جديد..." else e_sup_sel,
                                 "Services_Cost": e_scost, "Min_Threshold": e_m_thresh, "Colors": e_colors, "Notes": e_notes
@@ -574,7 +570,7 @@ else:
                             if cell_th:
                                 up_dict_th = c_row_th.to_dict()
                                 up_dict_th["Min_Threshold"] = new_thresh
-                                ws_inv.update(values=[[up_dict_th.get(h, "") for h in clean_headers]], range_name=f"A{cell_th.row}")
+                                ws_inv.update(values=[[up_dict_th.get(h, str(c_row_th.get(h, ""))) for h in clean_headers]], range_name=f"A{cell_th.row}")
                                 st.cache_data.clear()
                                 st.success("تم الحفظ وتحديث التنبيهات بنجاح!")
                                 time.sleep(1); st.rerun()
@@ -595,7 +591,7 @@ else:
                             if cell_sth:
                                 up_dict_sth = c_row_sth.to_dict()
                                 up_dict_sth["Min_Threshold"] = new_s_thresh
-                                ws_sup.update(values=[[up_dict_sth.get(h, "") for h in head_supplies]], range_name=f"A{cell_sth.row}")
+                                ws_sup.update(values=[[up_dict_sth.get(h, str(c_row_sth.get(h, ""))) for h in head_supplies]], range_name=f"A{cell_sth.row}")
                                 st.cache_data.clear()
                                 st.success("تم الحفظ وتحديث التنبيهات بنجاح!")
                                 time.sleep(1); st.rerun()
@@ -620,15 +616,15 @@ else:
 
             if not disp_sup.empty and "Supply_Name" in disp_sup.columns:
                 html_sup = '<div style="width: 100%; overflow-x: auto;"><table style="width:100%; min-width: 1000px; text-align:center; border-collapse: collapse; font-size: 16px; margin-top: 15px;">'
-                headers = ["ID", "Name", "Image", "Qty", "Cost", "Supplier", "Min Alert", "Notes"]
+                # إزالة عمود Min Alert
+                headers = ["ID", "Name", "Image", "Qty", "Cost", "Supplier", "Notes"]
                 html_sup += "<tr>" + "".join([f'<th style="color: #5ce1d6; border-bottom: 2px solid #5ce1d6; padding: 12px;">{h}</th>' for h in headers]) + "</tr>"
 
                 for _, row in disp_sup.iterrows():
                     html_sup += "<tr>"
                     cols_data = [
                         row.get("Supply_ID", ""), row.get("Supply_Name", ""), row.get("Image_URL", ""),
-                        row.get("Quantity", ""), row.get("Cost_Price", ""), row.get("Supplier_Name", ""), 
-                        row.get("Min_Threshold", 10), row.get("Notes", "")
+                        row.get("Quantity", ""), row.get("Cost_Price", ""), row.get("Supplier_Name", ""), row.get("Notes", "")
                     ]
                     for i, val in enumerate(cols_data):
                         if i == 2 and str(val).startswith("data:image"):
@@ -794,7 +790,7 @@ else:
                                             curr_s = int(ws_sup.cell(c_sup.row, sq_idx).value or 0)
                                             ws_sup.update(values=[[max(0, curr_s - q)]], range_name=f"{get_col_letter(sq_idx)}{c_sup.row}")
                             st.cache_data.clear()
-                            st.success("تم الإضافة والخصم!"); time.sleep(1); st.rerun()
+                            st.success("تم الإضافة والخصم بنجاح!"); time.sleep(1); st.rerun()
                         else: st.error("أدخل اسم المنتج!")
 
             with tab_p_edit:
