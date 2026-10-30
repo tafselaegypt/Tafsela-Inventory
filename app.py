@@ -690,4 +690,167 @@ else:
                             e_s_thresh = st.number_input("الحد الأدنى للتنبيه", min_value=0, step=1, value=int(c_s_row.get("Min_Threshold", 10)))
                             
                             e_s_vend = st.selectbox("المورد", sup_vendors + ["مورد جديد..."], index=s_sup_idx)
-                            e_s_new_vend = st.text_input("➕
+                            e_s_new_vend = st.text_input("➕ أو اكتب اسم مورد جديد هنا:", value="")
+                            
+                            e_s_notes = st.text_area("ملاحظات", value=str(c_s_row.get("Notes", "")))
+                            
+                            c_s1, c_s2 = st.columns(2)
+                            with c_s1: sub_s_e = st.form_submit_button("✏️ تحديث")
+                            with c_s2: sub_s_d = st.form_submit_button("🗑️ حذف")
+
+                        ws_sup = sh.worksheet("Supplies")
+                        cell_s = ws_sup.find(hid_s_id, in_column=head_supplies.index("Supply_ID")+1) if "Supply_ID" in head_supplies else ws_sup.find(hid_s_id, in_column=1)
+
+                        if sub_s_e and cell_s:
+                            final_e_s_supplier = e_s_new_vend.strip() if e_s_new_vend.strip() != "" else (e_s_vend if e_s_vend != "مورد جديد..." else "")
+                            up_s_dict = {
+                                "Supply_ID": hid_s_id, "Supply_Name": e_s_name, "Image_URL": get_image_base64(e_s_img) if e_s_img else str(c_s_row.get("Image_URL", "")), 
+                                "Quantity": e_s_qty, "Cost_Price": e_s_cost, "Supplier_Name": final_e_s_supplier,
+                                "Min_Threshold": e_s_thresh, "Notes": e_s_notes
+                            }
+                            ws_sup.update(values=[[up_s_dict.get(h, str(c_s_row.get(h, ""))) for h in head_supplies]], range_name=f"A{cell_s.row}")
+                            st.cache_data.clear()
+                            st.success("تم التحديث بنجاح!"); time.sleep(1); st.rerun()
+
+                        if sub_s_d and cell_s:
+                            ws_sup.delete_row(cell_s.row)
+                            st.cache_data.clear()
+                            st.success("تم الحذف بنجاح!"); time.sleep(1); st.rerun()
+
+    # ------------------------------------------
+    # المنتجات والمبيعات (Products)
+    # ------------------------------------------
+    elif st.session_state.app_mode == "🛍️ المنتجات والمبيعات":
+        st.markdown("<h1>🛍️ سجل المنتجات والمبيعات</h1><hr>", unsafe_allow_html=True)
+        df_p, c_head_p = load_data_safe(all_data["products"])
+        
+        if not df_p.empty:
+            for c in ["Product_ID", "Quantity", "Cost_Price", "Selling_Price", "Profit"]: 
+                if c in df_p.columns: df_p[c] = pd.to_numeric(df_p[c], errors='coerce').fillna(0)
+
+        cp1, cp2 = st.columns([3, 1])
+        with cp1:
+            st.markdown("### 🏷️ المنتجات المعروضة والمباعة")
+            if not df_p.empty:
+                st.dataframe(df_p[["Product_Name", "Quantity", "Cost_Price", "Selling_Price", "Profit", "Is_Sold", "Customer_Name"]], use_container_width=True)
+            else: st.info("لا توجد منتجات.")
+
+        with cp2:
+            tab_p_add, tab_p_edit = st.tabs(["➕ إضافة منتج", "✏️ تعديل منتج"])
+
+            with tab_p_add:
+                st.markdown("<div style='background-color:#2a2a3f; color:white; padding:10px; border-radius:5px;'>", unsafe_allow_html=True)
+                is_from_inv = st.checkbox("🔗 سحب من الخامات/المستلزمات؟", key="add_p_is_inv")
+                used_qty = {}
+                if is_from_inv:
+                    all_opts = []
+                    if not df.empty:
+                        all_opts += [f"[خامة-{r['Item_ID']}] {r['Item_Name']} (متاح: {r['Quantity']})" for _, r in df.iterrows() if str(r['Item_Name']).strip() != ""]
+                    if not df_supplies.empty:
+                        all_opts += [f"[تغليف-{r['Supply_ID']}] {r['Supply_Name']} (متاح: {r['Quantity']})" for _, r in df_supplies.iterrows() if str(r['Supply_Name']).strip() != ""]
+                    
+                    if all_opts:
+                        sel_inv = st.multiselect("اختر كل ما تم استهلاكه:", all_opts)
+                        for item in sel_inv:
+                            used_qty[item] = st.number_input(f"سحب من {item.split(']')[1].split('(')[0]}:", min_value=1, step=1)
+                    else: st.warning("لا يوجد شيء في المخازن للسحب منه.")
+                st.markdown("</div><br>", unsafe_allow_html=True)
+
+                is_sold = st.checkbox("هل تم البيع؟", key="add_p_sold")
+                with st.form("add_p_form", clear_on_submit=True):
+                    p_name = st.text_input("اسم المنتج")
+                    p_img = st.file_uploader("صورة المنتج", type=["jpg", "jpeg", "png"])
+                    p_qty = st.number_input("الكمية", min_value=0, step=1)
+                    p_loc = st.text_input("مكان العرض")
+                    p_cost = st.number_input("التكلفة", min_value=0.0, step=1.0)
+                    p_sell = st.number_input("سعر البيع", min_value=0.0, step=1.0)
+                    
+                    st.markdown("<small style='color:#888;'>بيانات البيع (اختياري)</small>", unsafe_allow_html=True)
+                    p_date = st.date_input("تاريخ البيع", value=None)
+                    p_cust = st.text_input("اسم العميل")
+                    p_notes = st.text_area("ملاحظات")
+                    
+                    if st.form_submit_button("إضافة المنتج"):
+                        if p_name:
+                            profit = float(p_sell) - float(p_cost)
+                            p_dict = {
+                                "Product_ID": len(df_p)+1, "Product_Name": p_name, "Image_URL": get_image_base64(p_img) if p_img else "",
+                                "Quantity": p_qty, "Display_Location": p_loc, "Cost_Price": p_cost, "Selling_Price": p_sell, "Profit": profit,
+                                "Is_Sold": "نعم" if is_sold else "لا", "Sale_Date": str(p_date) if is_sold and p_date else "", 
+                                "Customer_Name": p_cust if is_sold else "", "Notes": p_notes
+                            }
+                            ws_prod = sh.worksheet("Products")
+                            ws_prod.update(values=[[p_dict.get(h, "") for h in c_head_p]], range_name=f"A{len(all_data['products'])+1}")
+                            
+                            if is_from_inv and used_qty:
+                                ws_inv = sh.get_worksheet(0)
+                                ws_sup = sh.worksheet("Supplies")
+                                for itm, q in used_qty.items():
+                                    if itm.startswith("[خامة-"):
+                                        i_id = itm.split("]")[0].replace("[خامة-", "").strip()
+                                        id_idx = clean_headers.index("Item_ID")+1 if "Item_ID" in clean_headers else 1
+                                        q_idx = clean_headers.index("Quantity")+1 if "Quantity" in clean_headers else 4
+                                        c_inv = ws_inv.find(i_id, in_column=id_idx)
+                                        if c_inv:
+                                            curr = int(ws_inv.cell(c_inv.row, q_idx).value or 0)
+                                            ws_inv.update(values=[[max(0, curr - q)]], range_name=f"{get_col_letter(q_idx)}{c_inv.row}")
+                                    elif itm.startswith("[تغليف-"):
+                                        s_id = itm.split("]")[0].replace("[تغليف-", "").strip()
+                                        sid_idx = head_supplies.index("Supply_ID")+1 if "Supply_ID" in head_supplies else 1
+                                        sq_idx = head_supplies.index("Quantity")+1 if "Quantity" in head_supplies else 4
+                                        c_sup = ws_sup.find(s_id, in_column=sid_idx)
+                                        if c_sup:
+                                            curr_s = int(ws_sup.cell(c_sup.row, sq_idx).value or 0)
+                                            ws_sup.update(values=[[max(0, curr_s - q)]], range_name=f"{get_col_letter(sq_idx)}{c_sup.row}")
+                            st.cache_data.clear()
+                            st.success("تم الإضافة والخصم بنجاح!"); time.sleep(1); st.rerun()
+                        else: st.error("أدخل اسم المنتج!")
+
+            with tab_p_edit:
+                if not df_p.empty and "Product_Name" in df_p.columns:
+                    p_names_list = [n for n in df_p["Product_Name"].dropna().astype(str).tolist() if str(n).strip() != ""]
+                    if p_names_list:
+                        sel_p_name = st.selectbox("اختر المنتج لتعديله", p_names_list)
+                        c_row_p = df_p[df_p["Product_Name"].astype(str) == str(sel_p_name)].iloc[0]
+                        hid_p_id = str(c_row_p.get("Product_ID", ""))
+                        
+                        edit_p_sold = st.checkbox("هل تم البيع؟", value=(str(c_row_p.get("Is_Sold", "")).strip() == "نعم"), key="edit_p_sold")
+                        try:
+                            r_date = str(c_row_p.get("Sale_Date", "")).strip()
+                            saved_date = datetime.datetime.strptime(r_date, "%Y-%m-%d").date() if r_date and r_date != "None" else None
+                        except: saved_date = None
+
+                        with st.form("edit_p_form", clear_on_submit=True):
+                            e_p_name = st.text_input("اسم المنتج", value=str(c_row_p.get("Product_Name", "")))
+                            e_p_img = st.file_uploader("صورة جديدة", type=["jpg", "png"])
+                            e_p_qty = st.number_input("الكمية", min_value=0, step=1, value=int(c_row_p.get("Quantity", 0)))
+                            e_p_loc = st.text_input("مكان العرض", value=str(c_row_p.get("Display_Location", "")))
+                            e_p_cost = st.number_input("التكلفة", min_value=0.0, step=1.0, value=float(c_row_p.get("Cost_Price", 0.0)))
+                            e_p_sell = st.number_input("سعر البيع", min_value=0.0, step=1.0, value=float(c_row_p.get("Selling_Price", 0.0)))
+                            e_p_date = st.date_input("تاريخ البيع", value=saved_date)
+                            e_p_cust = st.text_input("اسم العميل", value=str(c_row_p.get("Customer_Name", "")))
+                            e_p_notes = st.text_area("ملاحظات", value=str(c_row_p.get("Notes", "")))
+
+                            cp_b1, cp_b2 = st.columns(2)
+                            with cp_b1: sub_p_e = st.form_submit_button("✏️ تحديث المنتج")
+                            with cp_b2: sub_p_d = st.form_submit_button("🗑️ حذف المنتج")
+
+                        ws_p = sh.worksheet("Products")
+                        cell_p = ws_p.find(hid_p_id, in_column=c_head_p.index("Product_ID")+1) if "Product_ID" in c_head_p else ws_p.find(hid_p_id, in_column=1)
+
+                        if sub_p_e and cell_p:
+                            profit_n = float(e_p_sell) - float(e_p_cost)
+                            up_p_dict = {
+                                "Product_ID": hid_p_id, "Product_Name": e_p_name, "Image_URL": get_image_base64(e_p_img) if e_p_img else str(c_row_p.get("Image_URL", "")),
+                                "Quantity": e_p_qty, "Display_Location": e_p_loc, "Cost_Price": e_p_cost, "Selling_Price": e_p_sell, "Profit": profit_n,
+                                "Is_Sold": "نعم" if edit_p_sold else "لا", "Sale_Date": str(e_p_date) if edit_p_sold and e_p_date else "",
+                                "Customer_Name": e_p_cust if edit_p_sold else "", "Notes": e_p_notes
+                            }
+                            ws_p.update(values=[[up_p_dict.get(h, str(c_row_p.get(h, ""))) for h in c_head_p]], range_name=f"A{cell_p.row}")
+                            st.cache_data.clear()
+                            st.success("تم التحديث بنجاح!"); time.sleep(1); st.rerun()
+
+                        if sub_p_d and cell_p:
+                            ws_p.delete_row(cell_p.row)
+                            st.cache_data.clear()
+                            st.success("تم الحذف بنجاح!"); time.sleep(1); st.rerun()
