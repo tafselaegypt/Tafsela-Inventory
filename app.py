@@ -550,20 +550,19 @@ else:
                         
             with ti_edit:
                 if not df_invoices.empty:
-                    # بناء قائمة الفواتير بحيث تعرض سبب الصرف بشكل أساسي
+                    # بناء قائمة الفواتير بدون التاريخ
                     inv_list = []
                     for _, r in df_invoices.iterrows():
                         if str(r.get("Invoice_ID", "")).strip() != "":
                             reason = str(r.get("Expense_Reason", "")).strip()
                             supplier = str(r.get("Supplier_Location", "")).strip()
                             
-                            # لو في سبب صرف، اكتبه وجنبه المورد بين قوسين، لو مفيش اعرض المورد بس
                             if reason:
                                 disp_text = f"{reason} ({supplier})"
                             else:
                                 disp_text = supplier
                                 
-                            inv_list.append(f"[{r['Invoice_ID']}] {disp_text} - {r['Date']}")
+                            inv_list.append(f"[{r['Invoice_ID']}] {disp_text}")
                     
                     if inv_list:
                         sel_inv = st.selectbox("اختر الفاتورة لتعديلها:", inv_list)
