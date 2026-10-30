@@ -119,7 +119,7 @@ def fetch_all_data():
         "users": get_or_create("Users", ["Email", "Password", "Status", "Role"]),
         "inventory": sh.get_worksheet(0).get_all_values(),
         "supplies": get_or_create("Supplies", ["Supply_ID", "Supply_Name", "Image_URL", "Quantity", "Cost_Price", "Supplier_Name", "Min_Threshold", "Notes"]),
-        "invoices": get_or_create("Invoices", ["Invoice_ID", "Date", "Invoice_Type", "Supplier_Location", "Invoice_Amount", "Shipping_Cost", "Total_Amount", "Image_URL", "Notes"]),
+        "invoices": get_or_create("Invoices", ["Invoice_ID", "Date", "Invoice_Type", "Supplier_Location", "Expense_Reason", "Invoice_Amount", "Shipping_Cost", "Total_Amount", "Image_URL", "Notes"]),
         "products": get_or_create("Products", ["Product_ID", "Product_Name", "Image_URL", "Quantity", "Display_Location", "Cost_Price", "Selling_Price", "Profit", "Is_Sold", "Sale_Date", "Customer_Name", "Notes"])
     }
 
@@ -187,7 +187,6 @@ if not st.session_state.logged_in:
 # ==========================================
 else:
     # --- Auto-Fix Headers in Google Sheets ---
-    # شلنا التصنيف (Category) من الخامات
     inv_raw = all_data["inventory"]
     if inv_raw and len(inv_raw) > 0:
         inv_headers = [str(h).strip() for h in inv_raw[0]]
@@ -207,11 +206,11 @@ else:
             st.cache_data.clear()
             st.rerun()
             
-    # ضفنا التصنيف (Invoice_Type) للفواتير
+    # Auto-Fix Invoices: Adding Expense_Reason
     invc_raw = all_data["invoices"]
     if invc_raw and len(invc_raw) > 0:
         invc_headers = [str(h).strip() for h in invc_raw[0]]
-        missing_invc = [h for h in ["Invoice_Type", "Invoice_Amount", "Shipping_Cost"] if h not in invc_headers]
+        missing_invc = [h for h in ["Invoice_Type", "Expense_Reason", "Invoice_Amount", "Shipping_Cost"] if h not in invc_headers]
         if missing_invc:
             new_invc_headers = invc_headers + missing_invc
             sh.worksheet("Invoices").update(values=[new_invc_headers], range_name="A1")
@@ -473,7 +472,6 @@ else:
             h_col_inv, filter_col_inv = st.columns([1.5, 2])
             with h_col_inv: st.markdown('<div><span style="font-size: 22px; font-weight: bold;">🗂️ الفواتير المسجلة</span></div>', unsafe_allow_html=True)
             with filter_col_inv: 
-                # فلتر عرض الفواتير حسب النوع
                 inv_filter = st.radio("فلتر العرض:", ["الكل", "خامات", "تغليف ومستلزمات", "خدمات"], horizontal=True)
 
             if not df_invoices.empty:
@@ -486,7 +484,7 @@ else:
 
                 if not display_invoices.empty:
                     html_inv = '<div style="width: 100%; overflow-x: auto;"><table style="width:100%; min-width: 1000px; text-align:center; border-collapse: collapse; font-size: 16px; margin-top: 15px;">'
-                    headers = ["ID", "التاريخ", "النوع", "مكان الشراء (المورد)", "مبلغ الفاتورة", "مصاريف الشحن", "الإجمالي", "صورة الفاتورة", "ملاحظات"]
+                    headers = ["ID", "التاريخ", "النوع", "مكان الشراء (المورد)", "سبب الصرف/البضاعة", "مبلغ الفاتورة", "مصاريف الشحن", "الإجمالي", "صورة الفاتورة", "ملاحظات"]
                     html_inv += "<tr>" + "".join([f'<th style="color: #5ce1d6; border-bottom: 2px solid #5ce1d6; padding: 12px;">{h}</th>' for h in headers]) + "</tr>"
 
                     for _, row in display_invoices.iterrows():
@@ -501,11 +499,11 @@ else:
                             
                         cols_data = [
                             row.get("Invoice_ID", ""), row.get("Date", ""), row.get("Invoice_Type", "خامات"), row.get("Supplier_Location", ""),
-                            inv_amt, ship_cost, f'<span style="color:#ffcc00; font-weight:bold;">{tot_amt}</span>',
+                            row.get("Expense_Reason", ""), inv_amt, ship_cost, f'<span style="color:#ffcc00; font-weight:bold;">{tot_amt}</span>',
                             row.get("Image_URL", ""), row.get("Notes", "")
                         ]
                         for i, val in enumerate(cols_data):
-                            if i == 7 and str(val).startswith("data:image"):
+                            if i == 8 and str(val).startswith("data:image"):
                                 html_inv += f'<td style="border-bottom: 1px solid #ccc; padding: 12px;"><img src="{val}" width="80" style="border-radius: 5px;"></td>'
                             else: html_inv += f'<td style="border-bottom: 1px solid #ccc; padding: 12px;">{val}</td>'
                         html_inv += "</tr>"
@@ -517,14 +515,21 @@ else:
         with col2:
             ti_add, ti_edit = st.tabs(["➕ إضافة فاتورة", "✏️ تعديل/حذف"])
             with ti_add:
+                # فصلنا اختيار نوع الفاتورة بره الـ Form عشان تتحدث الشاشة فوراً
+                selected_inv_type = st.radio("نوع الفاتورة (لإضافة فاتورة جديدة):", ["خامات", "تغليف ومستلزمات", "خدمات"], horizontal=True, key="add_inv_type_radio")
+
                 with st.form("add_inv_doc_form", clear_on_submit=True):
                     inv_date = st.date_input("تاريخ الفاتورة", value=datetime.date.today())
-                    # إضافة نوع الفاتورة
-                    inv_type = st.radio("نوع الفاتورة:", ["خامات", "تغليف ومستلزمات", "خدمات"], horizontal=True)
                     
                     sup_sel = st.selectbox("مكان الشراء (المورد)", global_suppliers + ["مورد جديد..."])
                     new_sup = st.text_input("➕ أو اكتب اسم مكان جديد هنا:")
                     
+                    # إخفاء خانة سبب الصرف لو الفاتورة خامات
+                    if selected_inv_type != "خامات":
+                        inv_reason = st.text_input("سبب الصرف / تفاصيل البضاعة (أدوات، صيانة، إلخ)")
+                    else:
+                        inv_reason = "" # الداتا هتبقى فاضية أوتوماتيك للخامات
+                        
                     inv_subtotal = st.number_input("مبلغ الفاتورة الأصلي", min_value=0.0, step=1.0)
                     inv_shipping = st.number_input("مصاريف شحن أو مواصلات", min_value=0.0, step=1.0)
                     inv_img = st.file_uploader("رفع صورة الفاتورة (مهم)", type=["jpg", "png", "jpeg"])
@@ -536,7 +541,8 @@ else:
                             inv_total = inv_subtotal + inv_shipping
                             new_inv_dict = {
                                 "Invoice_ID": len(df_invoices) + 1 if not df_invoices.empty else 1,
-                                "Date": str(inv_date), "Invoice_Type": inv_type, "Supplier_Location": final_supplier,
+                                "Date": str(inv_date), "Invoice_Type": selected_inv_type, "Supplier_Location": final_supplier,
+                                "Expense_Reason": inv_reason,
                                 "Invoice_Amount": inv_subtotal, "Shipping_Cost": inv_shipping, "Total_Amount": inv_total,
                                 "Image_URL": get_image_base64(inv_img) if inv_img else "", "Notes": inv_notes
                             }
@@ -549,7 +555,7 @@ else:
                 if not df_invoices.empty and "Supplier_Location" in df_invoices.columns:
                     inv_list = [f"[{r['Invoice_ID']}] {r['Supplier_Location']} - {r['Date']}" for _, r in df_invoices.iterrows() if str(r['Supplier_Location']).strip() != ""]
                     if inv_list:
-                        sel_inv = st.selectbox("اختر الفاتورة:", inv_list)
+                        sel_inv = st.selectbox("اختر الفاتورة لتعديلها:", inv_list)
                         inv_id_to_edit = sel_inv.split("]")[0].replace("[", "").strip()
                         c_inv_row = df_invoices[df_invoices["Invoice_ID"].astype(str) == inv_id_to_edit].iloc[0]
                         
@@ -559,6 +565,9 @@ else:
                         inv_type_val = str(c_inv_row.get("Invoice_Type", "خامات")).strip()
                         types_list = ["خامات", "تغليف ومستلزمات", "خدمات"]
                         type_idx = types_list.index(inv_type_val) if inv_type_val in types_list else 0
+                        
+                        # فصلنا اختيار نوع الفاتورة بره الـ Form
+                        e_inv_type = st.radio("نوع الفاتورة (لتعديل الفاتورة المختارة):", types_list, index=type_idx, horizontal=True, key=f"edit_type_{inv_id_to_edit}")
                         
                         old_inv_amt = float(c_inv_row.get("Invoice_Amount", 0.0))
                         old_tot_amt = float(c_inv_row.get("Total_Amount", 0.0))
@@ -570,10 +579,15 @@ else:
 
                         with st.form("edit_inv_doc_form", clear_on_submit=True):
                             e_inv_date = st.date_input("تاريخ الفاتورة", value=saved_date)
-                            e_inv_type = st.radio("نوع الفاتورة:", types_list, index=type_idx, horizontal=True)
                             
                             e_sup_sel = st.selectbox("مكان الشراء (المورد)", global_suppliers + ["مورد جديد..."], index=sup_idx if sup_idx < len(global_suppliers) else len(global_suppliers))
                             e_new_sup = st.text_input("➕ أو اكتب اسم مكان جديد هنا:", value="" if sup_idx < len(global_suppliers) else c_sup)
+
+                            # إخفاء الخانة لو نوع الفاتورة خامات
+                            if e_inv_type != "خامات":
+                                e_inv_reason = st.text_input("سبب الصرف / تفاصيل البضاعة", value=str(c_inv_row.get("Expense_Reason", "")))
+                            else:
+                                e_inv_reason = ""
 
                             e_inv_subtotal = st.number_input("مبلغ الفاتورة الأصلي", min_value=0.0, step=1.0, value=old_inv_amt)
                             e_inv_shipping = st.number_input("مصاريف شحن أو مواصلات", min_value=0.0, step=1.0, value=float(c_inv_row.get("Shipping_Cost", 0.0)))
@@ -593,6 +607,7 @@ else:
                             
                             up_inv_dict = {
                                 "Invoice_ID": inv_id_to_edit, "Date": str(e_inv_date), "Invoice_Type": e_inv_type, "Supplier_Location": final_e_supplier,
+                                "Expense_Reason": e_inv_reason,
                                 "Invoice_Amount": e_inv_subtotal, "Shipping_Cost": e_inv_shipping, "Total_Amount": inv_total,
                                 "Image_URL": get_image_base64(e_inv_img) if e_inv_img else str(c_inv_row.get("Image_URL", "")),
                                 "Notes": e_inv_notes
@@ -717,6 +732,11 @@ else:
 
         with col2:
             ts_add, ts_edit = st.tabs(["➕ Add Supply", "✏️ Edit Supply"])
+            
+            sup_vendors = []
+            if not df_supplies.empty and "Supplier_Name" in df_supplies.columns:
+                for s in df_supplies["Supplier_Name"].dropna().astype(str).unique():
+                    if s and s.strip() != "" and s not in sup_vendors and s != "مورد جديد...": sup_vendors.append(s)
 
             with ts_add:
                 with st.form("add_sup_form", clear_on_submit=True):
