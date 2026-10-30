@@ -63,7 +63,7 @@ if 'is_admin' not in st.session_state: st.session_state.is_admin = False
 if 'app_mode' not in st.session_state: st.session_state.app_mode = "📦 المخزون الأساسي (الخامات)"
 if 'dismissed_alerts' not in st.session_state: st.session_state.dismissed_alerts = []
 
-# CSS Styling (تم إزالة الألوان الثابتة للسماح بتوافق الثيم الفاتح/الداكن)
+# CSS Styling
 st.markdown(
     """
 <style>
@@ -119,7 +119,7 @@ def fetch_all_data():
         "users": get_or_create("Users", ["Email", "Password", "Status", "Role"]),
         "inventory": sh.get_worksheet(0).get_all_values(),
         "supplies": get_or_create("Supplies", ["Supply_ID", "Supply_Name", "Image_URL", "Quantity", "Cost_Price", "Supplier_Name", "Min_Threshold", "Notes"]),
-        "invoices": get_or_create("Invoices", ["Invoice_ID", "Date", "Supplier_Location", "Total_Amount", "Image_URL", "Notes"]),
+        "invoices": get_or_create("Invoices", ["Invoice_ID", "Date", "Supplier_Location", "Invoice_Amount", "Shipping_Cost", "Total_Amount", "Image_URL", "Notes"]),
         "products": get_or_create("Products", ["Product_ID", "Product_Name", "Image_URL", "Quantity", "Display_Location", "Cost_Price", "Selling_Price", "Profit", "Is_Sold", "Sale_Date", "Customer_Name", "Notes"])
     }
 
@@ -205,6 +205,17 @@ else:
             sh.worksheet("Supplies").update(values=[new_sup_headers], range_name="A1")
             st.cache_data.clear()
             st.rerun()
+            
+    # Auto-Fix Invoices to add Invoice_Amount and Shipping_Cost
+    invc_raw = all_data["invoices"]
+    if invc_raw and len(invc_raw) > 0:
+        invc_headers = [str(h).strip() for h in invc_raw[0]]
+        missing_invc = [h for h in ["Invoice_Amount", "Shipping_Cost"] if h not in invc_headers]
+        if missing_invc:
+            new_invc_headers = invc_headers + missing_invc
+            sh.worksheet("Invoices").update(values=[new_invc_headers], range_name="A1")
+            st.cache_data.clear()
+            st.rerun()
 
     with st.sidebar:
         try: st.image("logi.png", use_container_width=True)
@@ -245,8 +256,21 @@ else:
 
     df_invoices, head_invoices = load_data_safe(all_data["invoices"])
     if not df_invoices.empty:
-        for col in ["Invoice_ID", "Total_Amount"]:
-            if col in df_invoices.columns: df_invoices[col] = pd.to_numeric(df_invoices[col], errors='coerce').fillna(0)
+        for col in ["Invoice_ID", "Total_Amount", "Invoice_Amount", "Shipping_Cost"]:
+            if col in df_invoices.columns: 
+                df_invoices[col] = pd.to_numeric(df_invoices[col], errors='coerce').fillna(0)
+                
+    # --- القائمة الشاملة للموردين/أماكن الشراء من كل النظام ---
+    global_suppliers = []
+    if not df.empty and "Purchase_Location" in df.columns:
+        for s in df["Purchase_Location"].dropna().astype(str).unique():
+            if s and s.strip() != "" and s not in global_suppliers and s != "مورد جديد...": global_suppliers.append(s)
+    if not df_supplies.empty and "Supplier_Name" in df_supplies.columns:
+        for s in df_supplies["Supplier_Name"].dropna().astype(str).unique():
+            if s and s.strip() != "" and s not in global_suppliers and s != "مورد جديد...": global_suppliers.append(s)
+    if not df_invoices.empty and "Supplier_Location" in df_invoices.columns:
+        for s in df_invoices["Supplier_Location"].dropna().astype(str).unique():
+            if s and s.strip() != "" and s not in global_suppliers and s != "مورد جديد...": global_suppliers.append(s)
 
     # ------------------------------------------
     # إدارة المخزون (الخامات الأساسية)
@@ -289,18 +313,13 @@ else:
         with col2:
             tab_add, tab_edit = st.tabs(["➕ Add Item", "✏️ Edit Item"])
             
-            base_suppliers = []
-            if not df.empty and "Purchase_Location" in df.columns:
-                for s in df["Purchase_Location"].dropna().astype(str).unique():
-                    if s and s.strip() != "" and s not in base_suppliers and s != "مورد جديد...": base_suppliers.append(s)
-
             with tab_add:
                 with st.form("add_inv_form", clear_on_submit=True):
                     i_name = st.text_input("اسم الخامة")
                     i_img = st.file_uploader("صورة", type=["jpg", "png"])
                     i_qty = st.number_input("الكمية", min_value=0, step=1)
                     
-                    sup_sel = st.selectbox("المورد (Supplier)", base_suppliers + ["مورد جديد..."])
+                    sup_sel = st.selectbox("المورد (Supplier)", global_suppliers + ["مورد جديد..."])
                     new_sup = st.text_input("➕ أو اكتب اسم مورد جديد هنا (لو مش في القائمة):")
                     
                     p_price = st.number_input("سعر الشراء الأساسي", min_value=0.0, step=1.0)
@@ -331,15 +350,15 @@ else:
                         sel_name = st.selectbox("اختر للتعديل", names_list)
                         c_row = df[df["Item_Name"].astype(str) == str(sel_name)].iloc[0]
                         hid_id, c_sup = str(c_row.get("Item_ID", "")), str(c_row.get("Purchase_Location", ""))
-                        sup_idx = base_suppliers.index(c_sup) if c_sup in base_suppliers else 0
+                        sup_idx = global_suppliers.index(c_sup) if c_sup in global_suppliers else len(global_suppliers)
 
                         with st.form("edit_inv_form", clear_on_submit=True):
                             e_name = st.text_input("اسم الخامة", value=str(c_row.get("Item_Name", "")))
                             e_img = st.file_uploader("صورة جديدة", type=["jpg", "png"])
                             e_qty = st.number_input("الكمية", min_value=0, step=1, value=int(c_row.get("Quantity", 0)))
                             
-                            e_sup_sel = st.selectbox("المورد", base_suppliers + ["مورد جديد..."], index=sup_idx)
-                            e_new_sup = st.text_input("➕ أو اكتب اسم مورد جديد هنا:", value="")
+                            e_sup_sel = st.selectbox("المورد", global_suppliers + ["مورد جديد..."], index=sup_idx if sup_idx < len(global_suppliers) else len(global_suppliers))
+                            e_new_sup = st.text_input("➕ أو اكتب اسم مورد جديد هنا:", value="" if sup_idx < len(global_suppliers) else c_sup)
                             
                             e_pprice = st.number_input("سعر الشراء", min_value=0.0, step=1.0, value=float(c_row.get("Purchase_Price", 0.0)))
                             e_scost = st.number_input("خدمات", min_value=0.0, step=1.0, value=float(c_row.get("Services_Cost", 0.0)))
@@ -450,18 +469,32 @@ else:
         with col1:
             st.markdown("### 🗂️ الفواتير المسجلة")
             if not df_invoices.empty:
-                html_inv = '<div style="width: 100%; overflow-x: auto;"><table style="width:100%; min-width: 900px; text-align:center; border-collapse: collapse; font-size: 16px; margin-top: 15px;">'
-                headers = ["ID", "التاريخ", "مكان الشراء (المورد)", "المبلغ الإجمالي", "صورة الفاتورة", "ملاحظات"]
+                # فرز الفواتير من الأحدث للأقدم بناءً على عمود التاريخ
+                display_invoices = df_invoices.copy()
+                display_invoices['Date_sort'] = pd.to_datetime(display_invoices['Date'], errors='coerce')
+                display_invoices = display_invoices.sort_values(by=['Date_sort', 'Invoice_ID'], ascending=[False, False]).drop(columns=['Date_sort'])
+
+                html_inv = '<div style="width: 100%; overflow-x: auto;"><table style="width:100%; min-width: 1000px; text-align:center; border-collapse: collapse; font-size: 16px; margin-top: 15px;">'
+                headers = ["ID", "التاريخ", "مكان الشراء (المورد)", "مبلغ الفاتورة", "مصاريف الشحن", "الإجمالي", "صورة الفاتورة", "ملاحظات"]
                 html_inv += "<tr>" + "".join([f'<th style="color: #5ce1d6; border-bottom: 2px solid #5ce1d6; padding: 12px;">{h}</th>' for h in headers]) + "</tr>"
 
-                for _, row in df_invoices.iterrows():
+                for _, row in display_invoices.iterrows():
                     html_inv += "<tr>"
+                    
+                    inv_amt = float(row.get("Invoice_Amount", 0))
+                    ship_cost = float(row.get("Shipping_Cost", 0))
+                    tot_amt = float(row.get("Total_Amount", 0))
+                    
+                    if inv_amt == 0 and tot_amt > 0:
+                        inv_amt = tot_amt
+                        
                     cols_data = [
                         row.get("Invoice_ID", ""), row.get("Date", ""), row.get("Supplier_Location", ""),
-                        row.get("Total_Amount", ""), row.get("Image_URL", ""), row.get("Notes", "")
+                        inv_amt, ship_cost, f'<span style="color:#ffcc00; font-weight:bold;">{tot_amt}</span>',
+                        row.get("Image_URL", ""), row.get("Notes", "")
                     ]
                     for i, val in enumerate(cols_data):
-                        if i == 4 and str(val).startswith("data:image"):
+                        if i == 6 and str(val).startswith("data:image"):
                             html_inv += f'<td style="border-bottom: 1px solid #ccc; padding: 12px;"><img src="{val}" width="80" style="border-radius: 5px;"></td>'
                         else: html_inv += f'<td style="border-bottom: 1px solid #ccc; padding: 12px;">{val}</td>'
                     html_inv += "</tr>"
@@ -474,22 +507,29 @@ else:
             with ti_add:
                 with st.form("add_inv_doc_form", clear_on_submit=True):
                     inv_date = st.date_input("تاريخ الفاتورة", value=datetime.date.today())
-                    inv_loc = st.text_input("مكان الشراء (اسم المكان/المورد)")
-                    inv_amt = st.number_input("إجمالي الفاتورة (للحسابات)", min_value=0.0, step=1.0)
+                    
+                    sup_sel = st.selectbox("مكان الشراء (المورد)", global_suppliers + ["مورد جديد..."])
+                    new_sup = st.text_input("➕ أو اكتب اسم مكان جديد هنا:")
+                    
+                    inv_subtotal = st.number_input("مبلغ الفاتورة الأصلي", min_value=0.0, step=1.0)
+                    inv_shipping = st.number_input("مصاريف شحن أو مواصلات", min_value=0.0, step=1.0)
                     inv_img = st.file_uploader("رفع صورة الفاتورة (مهم)", type=["jpg", "png", "jpeg"])
                     inv_notes = st.text_area("تفاصيل / ملاحظات")
                     
                     if st.form_submit_button("💾 حفظ الفاتورة في الأرشيف"):
-                        if inv_loc:
+                        final_supplier = new_sup.strip() if new_sup.strip() != "" else (sup_sel if sup_sel != "مورد جديد..." else "")
+                        if final_supplier:
+                            inv_total = inv_subtotal + inv_shipping
                             new_inv_dict = {
                                 "Invoice_ID": len(df_invoices) + 1 if not df_invoices.empty else 1,
-                                "Date": str(inv_date), "Supplier_Location": inv_loc, "Total_Amount": inv_amt,
+                                "Date": str(inv_date), "Supplier_Location": final_supplier,
+                                "Invoice_Amount": inv_subtotal, "Shipping_Cost": inv_shipping, "Total_Amount": inv_total,
                                 "Image_URL": get_image_base64(inv_img) if inv_img else "", "Notes": inv_notes
                             }
                             sh.worksheet("Invoices").update(values=[[new_inv_dict.get(h, "") for h in head_invoices]], range_name=f"A{len(all_data['invoices']) + 1}")
                             st.cache_data.clear()
                             st.success("تم أرشفة الفاتورة بنجاح!"); time.sleep(1); st.rerun()
-                        else: st.error("يرجى إدخال مكان الشراء على الأقل.")
+                        else: st.error("يرجى إدخال مكان الشراء.")
                         
             with ti_edit:
                 if not df_invoices.empty and "Supplier_Location" in df_invoices.columns:
@@ -499,13 +539,25 @@ else:
                         inv_id_to_edit = sel_inv.split("]")[0].replace("[", "").strip()
                         c_inv_row = df_invoices[df_invoices["Invoice_ID"].astype(str) == inv_id_to_edit].iloc[0]
                         
+                        c_sup = str(c_inv_row.get("Supplier_Location", ""))
+                        sup_idx = global_suppliers.index(c_sup) if c_sup in global_suppliers else len(global_suppliers)
+                        
+                        old_inv_amt = float(c_inv_row.get("Invoice_Amount", 0.0))
+                        old_tot_amt = float(c_inv_row.get("Total_Amount", 0.0))
+                        if old_inv_amt == 0 and old_tot_amt > 0:
+                            old_inv_amt = old_tot_amt
+                        
                         try: saved_date = datetime.datetime.strptime(str(c_inv_row.get("Date", "")), "%Y-%m-%d").date()
                         except: saved_date = datetime.date.today()
 
                         with st.form("edit_inv_doc_form", clear_on_submit=True):
                             e_inv_date = st.date_input("تاريخ الفاتورة", value=saved_date)
-                            e_inv_loc = st.text_input("مكان الشراء", value=str(c_inv_row.get("Supplier_Location", "")))
-                            e_inv_amt = st.number_input("إجمالي الفاتورة", min_value=0.0, step=1.0, value=float(c_inv_row.get("Total_Amount", 0.0)))
+                            
+                            e_sup_sel = st.selectbox("مكان الشراء (المورد)", global_suppliers + ["مورد جديد..."], index=sup_idx if sup_idx < len(global_suppliers) else len(global_suppliers))
+                            e_new_sup = st.text_input("➕ أو اكتب اسم مكان جديد هنا:", value="" if sup_idx < len(global_suppliers) else c_sup)
+
+                            e_inv_subtotal = st.number_input("مبلغ الفاتورة الأصلي", min_value=0.0, step=1.0, value=old_inv_amt)
+                            e_inv_shipping = st.number_input("مصاريف شحن أو مواصلات", min_value=0.0, step=1.0, value=float(c_inv_row.get("Shipping_Cost", 0.0)))
                             e_inv_img = st.file_uploader("صورة جديدة (اتركه فارغاً للاحتفاظ بالقديمة)", type=["jpg", "png", "jpeg"])
                             e_inv_notes = st.text_area("ملاحظات", value=str(c_inv_row.get("Notes", "")))
                             
@@ -517,9 +569,13 @@ else:
                         cell_inv = ws_invs.find(inv_id_to_edit, in_column=head_invoices.index("Invoice_ID")+1) if "Invoice_ID" in head_invoices else ws_invs.find(inv_id_to_edit, in_column=1)
                         
                         if sub_ie_e and cell_inv:
+                            final_e_supplier = e_new_sup.strip() if e_new_sup.strip() != "" else (e_sup_sel if e_sup_sel != "مورد جديد..." else "")
+                            inv_total = e_inv_subtotal + e_inv_shipping
+                            
                             up_inv_dict = {
-                                "Invoice_ID": inv_id_to_edit, "Date": str(e_inv_date), "Supplier_Location": e_inv_loc,
-                                "Total_Amount": e_inv_amt, "Image_URL": get_image_base64(e_inv_img) if e_inv_img else str(c_inv_row.get("Image_URL", "")),
+                                "Invoice_ID": inv_id_to_edit, "Date": str(e_inv_date), "Supplier_Location": final_e_supplier,
+                                "Invoice_Amount": e_inv_subtotal, "Shipping_Cost": e_inv_shipping, "Total_Amount": inv_total,
+                                "Image_URL": get_image_base64(e_inv_img) if e_inv_img else str(c_inv_row.get("Image_URL", "")),
                                 "Notes": e_inv_notes
                             }
                             ws_invs.update(values=[[up_inv_dict.get(h, str(c_inv_row.get(h, ""))) for h in head_invoices]], range_name=f"A{cell_inv.row}")
@@ -642,11 +698,6 @@ else:
 
         with col2:
             ts_add, ts_edit = st.tabs(["➕ Add Supply", "✏️ Edit Supply"])
-            
-            sup_vendors = []
-            if not df_supplies.empty and "Supplier_Name" in df_supplies.columns:
-                for s in df_supplies["Supplier_Name"].dropna().astype(str).unique():
-                    if s and s.strip() != "" and s not in sup_vendors and s != "مورد جديد...": sup_vendors.append(s)
 
             with ts_add:
                 with st.form("add_sup_form", clear_on_submit=True):
@@ -656,7 +707,7 @@ else:
                     s_cost = st.number_input("التكلفة", min_value=0.0, step=1.0)
                     s_thresh = st.number_input("الحد الأدنى للتنبيه", min_value=0, step=1, value=10)
                     
-                    s_vend = st.selectbox("المورد", sup_vendors + ["مورد جديد..."])
+                    s_vend = st.selectbox("المورد", global_suppliers + ["مورد جديد..."])
                     s_new_vend = st.text_input("➕ أو اكتب اسم مورد جديد هنا:")
                     
                     s_notes = st.text_area("ملاحظات")
@@ -680,7 +731,7 @@ else:
                         sel_s_name = st.selectbox("اختر للتعديل", s_names_list)
                         c_s_row = df_supplies[df_supplies["Supply_Name"].astype(str) == str(sel_s_name)].iloc[0]
                         hid_s_id = str(c_s_row.get("Supply_ID", ""))
-                        s_sup_idx = sup_vendors.index(str(c_s_row.get("Supplier_Name", ""))) if str(c_s_row.get("Supplier_Name", "")) in sup_vendors else 0
+                        s_sup_idx = global_suppliers.index(str(c_s_row.get("Supplier_Name", ""))) if str(c_s_row.get("Supplier_Name", "")) in global_suppliers else len(global_suppliers)
                         
                         with st.form("edit_sup_form", clear_on_submit=True):
                             e_s_name = st.text_input("الاسم", value=str(c_s_row.get("Supply_Name", "")))
@@ -689,8 +740,8 @@ else:
                             e_s_cost = st.number_input("التكلفة", min_value=0.0, step=1.0, value=float(c_s_row.get("Cost_Price", 0.0)))
                             e_s_thresh = st.number_input("الحد الأدنى للتنبيه", min_value=0, step=1, value=int(c_s_row.get("Min_Threshold", 10)))
                             
-                            e_s_vend = st.selectbox("المورد", sup_vendors + ["مورد جديد..."], index=s_sup_idx)
-                            e_s_new_vend = st.text_input("➕ أو اكتب اسم مورد جديد هنا:", value="")
+                            e_s_vend = st.selectbox("المورد", global_suppliers + ["مورد جديد..."], index=s_sup_idx if s_sup_idx < len(global_suppliers) else len(global_suppliers))
+                            e_s_new_vend = st.text_input("➕ أو اكتب اسم مورد جديد هنا:", value="" if s_sup_idx < len(global_suppliers) else str(c_s_row.get("Supplier_Name", "")))
                             
                             e_s_notes = st.text_area("ملاحظات", value=str(c_s_row.get("Notes", "")))
                             
