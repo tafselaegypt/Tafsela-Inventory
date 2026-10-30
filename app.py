@@ -190,7 +190,8 @@ else:
     inv_raw = all_data["inventory"]
     if inv_raw and len(inv_raw) > 0:
         inv_headers = [str(h).strip() for h in inv_raw[0]]
-        missing_inv = [h for h in ["Purchase_Location", "Services_Cost", "Min_Threshold"] if h not in inv_headers]
+        # إضافة تصنيف (Category) للأعمدة اللي السيستم بيعالجها تلقائي
+        missing_inv = [h for h in ["Purchase_Location", "Services_Cost", "Min_Threshold", "Category"] if h not in inv_headers]
         if missing_inv:
             new_inv_headers = inv_headers + missing_inv
             sh.get_worksheet(0).update(values=[new_inv_headers], range_name="A1")
@@ -206,7 +207,6 @@ else:
             st.cache_data.clear()
             st.rerun()
             
-    # Auto-Fix Invoices to add Invoice_Amount and Shipping_Cost
     invc_raw = all_data["invoices"]
     if invc_raw and len(invc_raw) > 0:
         invc_headers = [str(h).strip() for h in invc_raw[0]]
@@ -245,6 +245,10 @@ else:
     df, clean_headers = load_data_safe(all_data["inventory"])
     if not df.empty:
         df["Min_Threshold"] = pd.to_numeric(df.get("Min_Threshold", 5), errors='coerce').fillna(5)
+        # إعطاء قيمة افتراضية "خامات" لأي صف قديم معندوش تصنيف
+        if "Category" not in df.columns: df["Category"] = "خامات"
+        df["Category"] = df["Category"].replace("", "خامات").fillna("خامات")
+        
         for col in ["Item_ID", "Quantity", "Purchase_Price", "Selling_Price", "Shipping_Cost", "Services_Cost"]: 
             if col in df.columns: df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
     
@@ -260,8 +264,7 @@ else:
             if col in df_invoices.columns: 
                 df_invoices[col] = pd.to_numeric(df_invoices[col], errors='coerce').fillna(0)
                 
-    # --- القائمة الشاملة للموردين/أماكن الشراء من كل النظام ---
-    global_suppliers = []
+    global_suppliers = ["بدون مورد (خدمة)"] # خيار للخدمات اللي ملهاش مورد
     if not df.empty and "Purchase_Location" in df.columns:
         for s in df["Purchase_Location"].dropna().astype(str).unique():
             if s and s.strip() != "" and s not in global_suppliers and s != "مورد جديد...": global_suppliers.append(s)
@@ -280,49 +283,61 @@ else:
         col1, col2 = st.columns([3, 1])
 
         with col1:
-            h_col, s_col, b_col = st.columns([2, 1.5, 0.5], vertical_alignment="center")
-            with h_col: st.markdown('<div><span style="font-size: 24px; font-weight: bold;">📋 الخامات المتاحة</span></div>', unsafe_allow_html=True)
-            with s_col: search_term = st.text_input("Search", label_visibility="collapsed", placeholder="🔍 ابحث...", key="inv_s")
+            h_col, s_col, b_col = st.columns([1.5, 2, 0.5], vertical_alignment="center")
+            with h_col: 
+                cat_filter = st.radio("فلتر العرض:", ["الكل", "خامات", "خدمات"], horizontal=True)
+            with s_col: search_term = st.text_input("Search", label_visibility="collapsed", placeholder="🔍 ابحث بالاسم...", key="inv_s")
             with b_col: st.button("Search", use_container_width=True, key="inv_b")
 
             display_df = df.copy()
-            if not display_df.empty and "Item_Name" in display_df.columns and search_term:
-                display_df = display_df[display_df["Item_Name"].astype(str).str.contains(search_term, case=False, na=False)]
+            if not display_df.empty:
+                # تطبيق الفلتر بناءً على التصنيف
+                if cat_filter != "الكل":
+                    display_df = display_df[display_df["Category"].astype(str).str.strip() == cat_filter]
+                
+                # تطبيق البحث بالاسم
+                if search_term and "Item_Name" in display_df.columns:
+                    display_df = display_df[display_df["Item_Name"].astype(str).str.contains(search_term, case=False, na=False)]
 
             if not display_df.empty and "Item_Name" in display_df.columns:
                 html_table = '<div style="width: 100%; overflow-x: auto;"><table style="width:100%; min-width: 1000px; text-align:center; border-collapse: collapse; font-size: 16px; margin-top: 15px;">'
-                headers = ["ID", "Name", "Image", "Qty", "Cost", "Sell Price", "Supplier", "Colors"]
+                # إضافة عمود التصنيف
+                headers = ["ID", "Name", "التصنيف", "Image", "Qty", "Cost", "Sell Price", "Supplier", "Colors"]
                 html_table += "<tr>" + "".join([f'<th style="color: #5ce1d6; border-bottom: 2px solid #5ce1d6; padding: 12px;">{h}</th>' for h in headers]) + "</tr>"
 
                 for _, row in display_df.iterrows():
                     html_table += "<tr>"
                     cols_data = [
-                        row.get("Item_ID", ""), row.get("Item_Name", ""), row.get("Image_URL", ""),
-                        row.get("Quantity", ""), row.get("Purchase_Price", 0), row.get("Selling_Price", ""),
-                        row.get("Purchase_Location", ""), row.get("Colors", "")
+                        row.get("Item_ID", ""), row.get("Item_Name", ""), row.get("Category", "خامات"), 
+                        row.get("Image_URL", ""), row.get("Quantity", ""), row.get("Purchase_Price", 0), 
+                        row.get("Selling_Price", ""), row.get("Purchase_Location", ""), row.get("Colors", "")
                     ]
                     for i, val in enumerate(cols_data):
-                        if i == 2 and str(val).startswith("data:image"):
+                        if i == 3 and str(val).startswith("data:image"):
                             html_table += f'<td style="border-bottom: 1px solid #ccc; padding: 12px;"><img src="{val}" width="50" style="border-radius: 5px;"></td>'
                         else: html_table += f'<td style="border-bottom: 1px solid #ccc; padding: 12px;">{val}</td>'
                     html_table += "</tr>"
                 html_table += "</table></div>"
                 st.markdown(html_table, unsafe_allow_html=True)
-            else: st.info("No items found.")
+            else: st.info("لا توجد عناصر مطابقة للبحث أو الفلتر.")
 
         with col2:
             tab_add, tab_edit = st.tabs(["➕ Add Item", "✏️ Edit Item"])
-            
+
             with tab_add:
                 with st.form("add_inv_form", clear_on_submit=True):
-                    i_name = st.text_input("اسم الخامة")
+                    # اختيار تصنيف العنصر
+                    item_category = st.radio("التصنيف:", ["خامات", "خدمات"], horizontal=True)
+                    
+                    i_name = st.text_input("الاسم (خامة أو خدمة)")
                     i_img = st.file_uploader("صورة", type=["jpg", "png"])
                     i_qty = st.number_input("الكمية", min_value=0, step=1)
                     
+                    st.markdown("<small style='color:gray;'>* لو بتضيفي خدمة وملهاش مورد، اختاري 'بدون مورد'</small>", unsafe_allow_html=True)
                     sup_sel = st.selectbox("المورد (Supplier)", global_suppliers + ["مورد جديد..."])
-                    new_sup = st.text_input("➕ أو اكتب اسم مورد جديد هنا (لو مش في القائمة):")
+                    new_sup = st.text_input("➕ أو اكتب اسم مورد جديد هنا:")
                     
-                    p_price = st.number_input("سعر الشراء الأساسي", min_value=0.0, step=1.0)
+                    p_price = st.number_input("سعر الشراء / التكلفة", min_value=0.0, step=1.0)
                     serv_cost = st.number_input("تكلفة خدمات إضافية", min_value=0.0, step=1.0)
                     s_price = st.number_input("سعر البيع المتوقع", min_value=0.0, step=1.0)
                     m_thresh = st.number_input("الحد الأدنى للتنبيه", min_value=0, step=1, value=5)
@@ -335,13 +350,13 @@ else:
                                 "Item_ID": len(df) + 1 if not df.empty else 1, "Item_Name": i_name, "Image_URL": get_image_base64(i_img),
                                 "Quantity": i_qty, "Purchase_Price": p_price, "Selling_Price": s_price,
                                 "Purchase_Location": final_supplier, 
-                                "Services_Cost": serv_cost, "Min_Threshold": m_thresh, "Colors": colors, "Notes": notes
+                                "Services_Cost": serv_cost, "Min_Threshold": m_thresh, "Category": item_category, "Colors": colors, "Notes": notes
                             }
                             sh.get_worksheet(0).update(values=[[new_row_dict.get(h, "") for h in clean_headers]], range_name=f"A{len(all_data['inventory']) + 1}")
                             st.cache_data.clear()
                             st.success("تم الإضافة بنجاح!"); time.sleep(1); st.rerun()
                         else:
-                            st.error("يرجى إدخال اسم الخامة.")
+                            st.error("يرجى إدخال الاسم.")
 
             with tab_edit:
                 if not df.empty and "Item_Name" in df.columns:
@@ -351,17 +366,21 @@ else:
                         c_row = df[df["Item_Name"].astype(str) == str(sel_name)].iloc[0]
                         hid_id, c_sup = str(c_row.get("Item_ID", "")), str(c_row.get("Purchase_Location", ""))
                         sup_idx = global_suppliers.index(c_sup) if c_sup in global_suppliers else len(global_suppliers)
+                        
+                        cat_val = str(c_row.get("Category", "خامات")).strip()
+                        cat_idx = 1 if cat_val == "خدمات" else 0
 
                         with st.form("edit_inv_form", clear_on_submit=True):
-                            e_name = st.text_input("اسم الخامة", value=str(c_row.get("Item_Name", "")))
+                            e_category = st.radio("التصنيف:", ["خامات", "خدمات"], index=cat_idx, horizontal=True)
+                            e_name = st.text_input("الاسم", value=str(c_row.get("Item_Name", "")))
                             e_img = st.file_uploader("صورة جديدة", type=["jpg", "png"])
                             e_qty = st.number_input("الكمية", min_value=0, step=1, value=int(c_row.get("Quantity", 0)))
                             
                             e_sup_sel = st.selectbox("المورد", global_suppliers + ["مورد جديد..."], index=sup_idx if sup_idx < len(global_suppliers) else len(global_suppliers))
                             e_new_sup = st.text_input("➕ أو اكتب اسم مورد جديد هنا:", value="" if sup_idx < len(global_suppliers) else c_sup)
                             
-                            e_pprice = st.number_input("سعر الشراء", min_value=0.0, step=1.0, value=float(c_row.get("Purchase_Price", 0.0)))
-                            e_scost = st.number_input("خدمات", min_value=0.0, step=1.0, value=float(c_row.get("Services_Cost", 0.0)))
+                            e_pprice = st.number_input("سعر التكلفة", min_value=0.0, step=1.0, value=float(c_row.get("Purchase_Price", 0.0)))
+                            e_scost = st.number_input("خدمات اضافية", min_value=0.0, step=1.0, value=float(c_row.get("Services_Cost", 0.0)))
                             e_sprice = st.number_input("سعر البيع", min_value=0.0, step=1.0, value=float(c_row.get("Selling_Price", 0.0)))
                             e_m_thresh = st.number_input("الحد الأدنى للتنبيه", min_value=0, step=1, value=int(c_row.get("Min_Threshold", 5)))
                             e_colors, e_notes = st.text_input("الألوان", value=str(c_row.get("Colors", ""))), st.text_area("ملاحظات", value=str(c_row.get("Notes", "")))
@@ -379,7 +398,7 @@ else:
                                 "Item_ID": hid_id, "Item_Name": e_name, "Image_URL": get_image_base64(e_img) if e_img else str(c_row.get("Image_URL", "")), 
                                 "Quantity": e_qty, "Purchase_Price": e_pprice, "Selling_Price": e_sprice, 
                                 "Purchase_Location": final_e_supplier,
-                                "Services_Cost": e_scost, "Min_Threshold": e_m_thresh, "Colors": e_colors, "Notes": e_notes
+                                "Services_Cost": e_scost, "Min_Threshold": e_m_thresh, "Category": e_category, "Colors": e_colors, "Notes": e_notes
                             }
                             ws_inv.update(values=[[up_dict.get(h, str(c_row.get(h, ""))) for h in clean_headers]], range_name=f"A{cell.row}")
                             st.cache_data.clear()
@@ -469,7 +488,6 @@ else:
         with col1:
             st.markdown("### 🗂️ الفواتير المسجلة")
             if not df_invoices.empty:
-                # فرز الفواتير من الأحدث للأقدم بناءً على عمود التاريخ
                 display_invoices = df_invoices.copy()
                 display_invoices['Date_sort'] = pd.to_datetime(display_invoices['Date'], errors='coerce')
                 display_invoices = display_invoices.sort_values(by=['Date_sort', 'Invoice_ID'], ascending=[False, False]).drop(columns=['Date_sort'])
