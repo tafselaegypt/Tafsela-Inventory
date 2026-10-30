@@ -206,7 +206,6 @@ else:
             st.cache_data.clear()
             st.rerun()
             
-    # Auto-Fix Invoices: Adding Expense_Reason
     invc_raw = all_data["invoices"]
     if invc_raw and len(invc_raw) > 0:
         invc_headers = [str(h).strip() for h in invc_raw[0]]
@@ -515,7 +514,6 @@ else:
         with col2:
             ti_add, ti_edit = st.tabs(["➕ إضافة فاتورة", "✏️ تعديل/حذف"])
             with ti_add:
-                # فصلنا اختيار نوع الفاتورة بره الـ Form عشان تتحدث الشاشة فوراً
                 selected_inv_type = st.radio("نوع الفاتورة (لإضافة فاتورة جديدة):", ["خامات", "تغليف ومستلزمات", "خدمات"], horizontal=True, key="add_inv_type_radio")
 
                 with st.form("add_inv_doc_form", clear_on_submit=True):
@@ -524,11 +522,10 @@ else:
                     sup_sel = st.selectbox("مكان الشراء (المورد)", global_suppliers + ["مورد جديد..."])
                     new_sup = st.text_input("➕ أو اكتب اسم مكان جديد هنا:")
                     
-                    # إخفاء خانة سبب الصرف لو الفاتورة خامات
                     if selected_inv_type != "خامات":
                         inv_reason = st.text_input("سبب الصرف / تفاصيل البضاعة (أدوات، صيانة، إلخ)")
                     else:
-                        inv_reason = "" # الداتا هتبقى فاضية أوتوماتيك للخامات
+                        inv_reason = ""
                         
                     inv_subtotal = st.number_input("مبلغ الفاتورة الأصلي", min_value=0.0, step=1.0)
                     inv_shipping = st.number_input("مصاريف شحن أو مواصلات", min_value=0.0, step=1.0)
@@ -552,8 +549,22 @@ else:
                         else: st.error("يرجى إدخال مكان الشراء.")
                         
             with ti_edit:
-                if not df_invoices.empty and "Supplier_Location" in df_invoices.columns:
-                    inv_list = [f"[{r['Invoice_ID']}] {r['Supplier_Location']} - {r['Date']}" for _, r in df_invoices.iterrows() if str(r['Supplier_Location']).strip() != ""]
+                if not df_invoices.empty:
+                    # بناء قائمة الفواتير بحيث تعرض سبب الصرف بشكل أساسي
+                    inv_list = []
+                    for _, r in df_invoices.iterrows():
+                        if str(r.get("Invoice_ID", "")).strip() != "":
+                            reason = str(r.get("Expense_Reason", "")).strip()
+                            supplier = str(r.get("Supplier_Location", "")).strip()
+                            
+                            # لو في سبب صرف، اكتبه وجنبه المورد بين قوسين، لو مفيش اعرض المورد بس
+                            if reason:
+                                disp_text = f"{reason} ({supplier})"
+                            else:
+                                disp_text = supplier
+                                
+                            inv_list.append(f"[{r['Invoice_ID']}] {disp_text} - {r['Date']}")
+                    
                     if inv_list:
                         sel_inv = st.selectbox("اختر الفاتورة لتعديلها:", inv_list)
                         inv_id_to_edit = sel_inv.split("]")[0].replace("[", "").strip()
@@ -566,7 +577,6 @@ else:
                         types_list = ["خامات", "تغليف ومستلزمات", "خدمات"]
                         type_idx = types_list.index(inv_type_val) if inv_type_val in types_list else 0
                         
-                        # فصلنا اختيار نوع الفاتورة بره الـ Form
                         e_inv_type = st.radio("نوع الفاتورة (لتعديل الفاتورة المختارة):", types_list, index=type_idx, horizontal=True, key=f"edit_type_{inv_id_to_edit}")
                         
                         old_inv_amt = float(c_inv_row.get("Invoice_Amount", 0.0))
@@ -583,7 +593,6 @@ else:
                             e_sup_sel = st.selectbox("مكان الشراء (المورد)", global_suppliers + ["مورد جديد..."], index=sup_idx if sup_idx < len(global_suppliers) else len(global_suppliers))
                             e_new_sup = st.text_input("➕ أو اكتب اسم مكان جديد هنا:", value="" if sup_idx < len(global_suppliers) else c_sup)
 
-                            # إخفاء الخانة لو نوع الفاتورة خامات
                             if e_inv_type != "خامات":
                                 e_inv_reason = st.text_input("سبب الصرف / تفاصيل البضاعة", value=str(c_inv_row.get("Expense_Reason", "")))
                             else:
